@@ -509,7 +509,7 @@ class CudaKernelGenerator : private OptOutConstDispatch {
   //!  vectorization handling logic but this path will be updated in
   //!  follow ups to optimize the generated assembly so keeping them
   //!  separate path for now.
-  std::string genVectorPointer(Val* val, DataType dtype, int vec_size) {
+  std::string genVectorPointer(Val* val, DataType dtype, size_t vec_size) {
     std::stringstream ss;
 
     ss << "reinterpret_cast<Array<" << dtype << "," << vec_size << ","
@@ -519,7 +519,7 @@ class CudaKernelGenerator : private OptOutConstDispatch {
   }
 
   // Utility function to emit a cp.async intrinsic
-  void genCpAsync(const LoadStoreOp* ldst, int vec_size) {
+  void genCpAsync(const LoadStoreOp* ldst, size_t vec_size) {
     auto dtype = ldst->in()->getDataType().value();
     bool is_cg = ldst->opType() == LoadStoreOpType::CpAsyncCg;
 
@@ -543,7 +543,7 @@ class CudaKernelGenerator : private OptOutConstDispatch {
     }
   }
 
-  void genLdMatrix(const LoadStoreOp* ldst, int vector_word_size) {
+  void genLdMatrix(const LoadStoreOp* ldst, size_t vector_word_size) {
     auto dtype = ldst->in()->getDataType().value();
     indent() << "Turing::ldMatrix";
     if (ldst->opType() == LoadStoreOpType::LdMatrixTranspose) {
@@ -1779,7 +1779,7 @@ class CudaKernelGenerator : private OptOutConstDispatch {
     std::vector<std::vector<int64_t>> index_combinationsatoins;
 
     // Initialize with an empty vector
-    index_combinationsatoins.push_back(std::vector<int64_t>());
+    index_combinationsatoins.emplace_back();
 
     // Incrementally build a combinatorial set
     for (const auto loop : grouped_loops_) {
@@ -2797,7 +2797,7 @@ class CudaKernelGenerator : private OptOutConstDispatch {
         } else {
           indent() << "} else if (";
         }
-        code_ << gen(cat->getPred(i)) << ") {\n";
+        code_ << gen(cat->getPred((int)i)) << ") {\n";
       } else {
         // last case doesn't need to be predicated
         indent() << "} else {\n";
