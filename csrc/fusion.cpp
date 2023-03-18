@@ -25,8 +25,7 @@ namespace nvfuser {
 
 static thread_local Fusion* ACTIVE_FUSION = nullptr; // NOLINT
 
-FusionGuard::FusionGuard(Fusion* fusion) {
-  prev_fusion = ACTIVE_FUSION;
+FusionGuard::FusionGuard(Fusion* fusion) : prev_fusion{ACTIVE_FUSION} {
   ACTIVE_FUSION = fusion;
 }
 
@@ -719,7 +718,7 @@ std::unordered_set<int> Fusion::getOutputAliasIndices() const {
 
   for (const auto i : c10::irange(outputs_.size())) {
     if (io_alias_.count(outputs_[i]) != 0) {
-      alias_indices.insert(i);
+      alias_indices.insert((int)i);
     }
   }
   return alias_indices;
