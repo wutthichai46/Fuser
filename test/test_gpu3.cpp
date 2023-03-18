@@ -7620,7 +7620,7 @@ class ThreadPredChecker : public kir::IrVisitor {
     if (bop->getBinaryOpType() == BinaryOpType::And) {
       handle(bop->lhs());
       handle(bop->rhs());
-    } else if (bop->getBinaryOpType() == BinaryOpType::Eq) {
+    } else if (bop->getBinaryOpType() == BinaryOpType::EQ) {
       if (bop->lhs()->isZeroInt() || bop->rhs()->isZeroInt()) {
         auto non_zero_arg = bop->lhs()->isZeroInt() ? bop->rhs() : bop->lhs();
 

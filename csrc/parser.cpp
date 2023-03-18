@@ -1122,7 +1122,7 @@ class IrParser {
                  {at::aten::gt, BinaryOpType::GT},
                  {at::aten::ge, BinaryOpType::GE},
                  {at::aten::ne, BinaryOpType::NE},
-                 {at::aten::eq, BinaryOpType::Eq}});
+                 {at::aten::eq, BinaryOpType::EQ}});
 
             MemoryFormat format;
             std::list<Val*> list_val;

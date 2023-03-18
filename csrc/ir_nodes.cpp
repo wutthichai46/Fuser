@@ -485,7 +485,7 @@ std::vector<EvaluatorValue> BinaryOp::evaluate(
     case BinaryOpType::Xor:
       return {lhs ^ rhs};
       break;
-    case BinaryOpType::Eq:
+    case BinaryOpType::EQ:
       return {lhs == rhs};
       break;
     case BinaryOpType::NE:

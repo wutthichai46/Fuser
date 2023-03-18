@@ -109,7 +109,7 @@ bool isIntegerOp(const BinaryOpType bopt) {
 }
 
 bool isLogicalOp(const BinaryOpType bopt) {
-  return bopt >= BinaryOpType::Eq && bopt <= BinaryOpType::NE;
+  return bopt >= BinaryOpType::EQ && bopt <= BinaryOpType::NE;
 }
 
 bool alsoBooleanOperator(const BinaryOpType bopt) {
@@ -455,7 +455,7 @@ static const char* binary_op_type2string(BinaryOpType t) {
       return "or";
     case BinaryOpType::Xor:
       return "xor";
-    case BinaryOpType::Eq:
+    case BinaryOpType::EQ:
       return "equal";
     case BinaryOpType::GE:
       return "greaterThanOrEqual";
@@ -517,7 +517,7 @@ static const char* binary_op_type_inline_op2string(BinaryOpType t) {
     case BinaryOpType::Rshift:
       return ">>";
     // Logical Ops
-    case BinaryOpType::Eq:
+    case BinaryOpType::EQ:
       return "==";
     case BinaryOpType::GE:
       return ">=";

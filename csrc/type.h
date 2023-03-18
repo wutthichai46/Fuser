@@ -276,7 +276,7 @@ enum class BinaryOpType {
   // Logical Ops
   // Int operations, leave position of Mod as first logical op see
   // isLogicalOp(BinaryOpType bopt)
-  Eq,
+  EQ,
   GE,
   GT,
   LE,

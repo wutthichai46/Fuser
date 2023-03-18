@@ -151,7 +151,7 @@ Bool* IrBuilder::orExpr(Val* lhs, Val* rhs) {
 }
 
 Bool* IrBuilder::eqExpr(Val* lhs, Val* rhs) {
-  return newLogicExpr(BinaryOpType::Eq, lhs, rhs);
+  return newLogicExpr(BinaryOpType::EQ, lhs, rhs);
 }
 
 Bool* IrBuilder::neExpr(Val* lhs, Val* rhs) {

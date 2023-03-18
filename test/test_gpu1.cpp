@@ -3604,7 +3604,7 @@ TEST_F(NVFuserTest, FusionBinaryOps_CUDA) {
 
   // see [Note: explicit tuple type for uniform initialization list]
   std::vector<OpTuple> equal_ops{
-      OpTuple{at::eq, BinaryOpType::Eq, "eq"},
+      OpTuple{at::eq, BinaryOpType::EQ, "eq"},
       OpTuple{at::ne, BinaryOpType::NE, "ne"}};
 
   // Complex numbers are not ordered
