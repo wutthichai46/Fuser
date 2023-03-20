@@ -983,7 +983,7 @@ c10::optional<WelfordTriplet::ValName> WelfordTriplet::getNameOf(
     Val* val) const {
   auto it = std::find(begin(), end(), val);
   if (it != end()) {
-    return indexToValName((int) std::distance(begin(), it));
+    return indexToValName((int)std::distance(begin(), it));
   }
 
   return c10::optional<WelfordTriplet::ValName>();
@@ -1443,7 +1443,7 @@ std::vector<int64_t> TransposeOp::old2new() const {
   std::vector<int64_t> old2new(new2old().size());
   for (auto new_axis : c10::irange(new2old().size())) {
     int old_axis = (int)new2old().at(new_axis);
-    old2new[old_axis] = (int64_t) new_axis;
+    old2new[old_axis] = (int64_t)new_axis;
   }
   return old2new;
 }
@@ -3172,7 +3172,7 @@ std::vector<Val*> PadOp::getPadWidths() const {
 }
 
 std::pair<Val*, Val*> PadOp::getPadWidths(int64_t axis) const {
-  auto num_dims = (int64_t) out()->as<TensorView>()->getRootDomain().size();
+  auto num_dims = (int64_t)out()->as<TensorView>()->getRootDomain().size();
 
   if (axis < 0) {
     axis += num_dims;

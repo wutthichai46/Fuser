@@ -488,7 +488,8 @@ void FusionKernelRuntime::startAsyncCompile(
   // auto compile_fusion = [args = std::move(args_old), lock =
   // std::move(unique_lock), this] () mutable {
   //
-  // KernelArgumentHolder args_old is captured as const reference in lamda function
+  // KernelArgumentHolder args_old is captured as const reference in lamda
+  // function
   auto compile_fusion = [args = args_old, this]() mutable {
     std::lock_guard<std::mutex> guard(compiling_);
 

@@ -121,12 +121,12 @@ class AllocationInserter : public kir::ExprMutator {
     std::vector<IterDomain*> init_dims;
     for (const auto axis_i :
          c10::irange(info.alloc_pos, info.buffer->nDims())) {
-      if (info.buffer->axis((int) axis_i)->isReduction() ||
-          info.buffer->axis((int) axis_i)->isBroadcast()) {
+      if (info.buffer->axis((int)axis_i)->isReduction() ||
+          info.buffer->axis((int)axis_i)->isBroadcast()) {
         continue;
       }
       auto concrete_id = gpu_lower->caMap()->getConcreteMappedID(
-          info.buffer->axis((int) axis_i), IdMappingMode::LOOP);
+          info.buffer->axis((int)axis_i), IdMappingMode::LOOP);
       init_dims.push_back(concrete_id);
     }
     Expr* init_expr =
@@ -406,8 +406,7 @@ class AllocationInserter : public kir::ExprMutator {
       alloc_dims = getNonGlobalAllocExpr(info);
     }
 
-    if (alloc_dims.empty() &&
-        !info.buffer->domain()->noReductions().empty()) {
+    if (alloc_dims.empty() && !info.buffer->domain()->noReductions().empty()) {
       alloc_dims.push_back(info.buffer->container()->oneVal());
     }
 
@@ -427,7 +426,7 @@ class AllocationInserter : public kir::ExprMutator {
           info.buffer, original_alloc_size);
       int double_buffer_stage = 2;
       if (info.buffer->isCircularBuffered()) {
-        double_buffer_stage = (int) info.buffer->circularBufferDepth();
+        double_buffer_stage = (int)info.buffer->circularBufferDepth();
       }
       alloc_dims.push_back(IrBuilder::create<Int>(double_buffer_stage));
     }
