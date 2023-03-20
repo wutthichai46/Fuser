@@ -1597,13 +1597,13 @@ std::string GatherOp::toInlineString(int indent_size) const {
   TORCH_CHECK(false, "Tensor op can not be printed inline");
 }
 
-int GatherOp::gatherAxis(int axis) const {
+size_t GatherOp::gatherAxis(size_t axis) const {
   if (axis < 0) {
     axis += out()->as<TensorView>()->nDims();
   }
   TORCH_INTERNAL_ASSERT(
-      axis >= 0 && axis < (int)windowShape().size(), "Invalid axis: ", axis);
-  return int(windowShape().size()) + axis;
+      axis >= 0 && axis < windowShape().size(), "Invalid axis: ", axis);
+  return windowShape().size() + axis;
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(GatherOp)
