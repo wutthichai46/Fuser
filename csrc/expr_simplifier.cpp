@@ -994,8 +994,9 @@ Val* divideFactorized(Val* x, Val* y) {
   if (*x_factors.first->getInt() % *y_factors.first->getInt() != 0) {
     // not divisible
     return nullptr;
-  } 
-  int64_t quoient_const_factor = *x_factors.first->getInt() / *y_factors.first->getInt();
+  }
+  int64_t quoient_const_factor =
+      *x_factors.first->getInt() / *y_factors.first->getInt();
 
   std::vector<Val*> quotient_symbolic_factors;
 
