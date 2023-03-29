@@ -472,7 +472,7 @@ void FusionKernelRuntime::prepareRuntimeOrder() {
 }
 
 // passing args by value, since we will be modify this
-void FusionKernelRuntime::startAsyncCompile(KernelArgumentHolder& args_old) {
+void FusionKernelRuntime::startAsyncCompile(KernelArgumentHolder& args) {
   // only single compilation is supported at this moment.
   std::unique_lock<std::mutex> unique_lock(mutex_, std::try_to_lock);
   TORCH_CHECK(
@@ -483,57 +483,56 @@ void FusionKernelRuntime::startAsyncCompile(KernelArgumentHolder& args_old) {
       unique_lock2.owns_lock(),
       "Calling startAsyncCompile on a FusionKernelRuntime that's already starting a compilation thread is not supported 2");
 
-  // for some reason I can't seem to move unique_lock and it keeps using copy.
-  // auto compile_fusion = [args = std::move(args_old), lock =
-  // std::move(unique_lock), this] () mutable {
-  auto compile_fusion = [args = std::move(args_old), this]() mutable {
-    std::lock_guard<std::mutex> guard(compiling_);
+  TORCH_INTERNAL_ASSERT(
+      args.size() == segmented_fusion_->inputs().size(),
+      "Inputs were not set up correctly, received ",
+      args.size(),
+      " inputs but expecting ",
+      segmented_fusion_->inputs().size());
 
-    // locking mutex_ since we are touching executors_ during compilation.
-    // c10::DeviceGuard dg(c10::Device(c10::DeviceType::CUDA,
-    // args.getDeviceIndex())); CUDAGuard uses runtime API directly, which is
-    // thread safe.
-    c10::cuda::CUDAGuard dg(args.getDeviceIndex());
+  std::unordered_map<Val*, const ArgAbstract*> tensor_map;
+  mapFusionInputsToArgs(tensor_map, args);
 
-    FUSER_PERF_SCOPE("FusionKernelRuntime::startAsyncCompile");
-
-    TORCH_INTERNAL_ASSERT(
-        args.size() == segmented_fusion_->inputs().size(),
-        "Inputs were not set up correctly, received ",
-        args.size(),
-        " inputs but expecting ",
-        segmented_fusion_->inputs().size());
-
-    c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
-    std::unordered_map<Val*, const ArgAbstract*> tensor_map;
-    mapFusionInputsToArgs(tensor_map, args);
-
-    // TODO: compilation can happen in parallel! We can have output sizes
-    // inferred on un-compiled kernel and setup all tensor_map prior to
-    // compilation.
-    for (auto group_to_run : runtime_workspace_.group_run_order) {
-      // TODO: index mode should be updated per segmented kernel
-      // Prepare input vector
-      KernelArgumentHolder group_runtime_inputs(args.getIndexMode());
-      group_runtime_inputs.setDeviceIndex(args.getDeviceIndex());
-      for (auto input : group_to_run->inputs()) {
-        group_runtime_inputs.push(tensor_map.at(input));
-      }
-
-      // Run graph segment
-      KernelArgumentHolder group_runtime_outputs =
-          compileKernel(group_runtime_inputs, group_to_run);
-
-      // map output args to tensor map
-      const auto& group_outputs = group_to_run->outputs();
-      for (const size_t group_out_i : c10::irange(group_outputs.size())) {
-        args.push(group_runtime_outputs[group_out_i]);
-        tensor_map.emplace(group_outputs[group_out_i], args.back());
-      }
+  std::vector<KernelArgumentHolder> sg_inputs;
+  for (auto group_to_run : runtime_workspace_.group_run_order) {
+    // TODO: index mode should be updated per segmented kernel
+    // Prepare input vector
+    KernelArgumentHolder group_runtime_inputs(args.getIndexMode());
+    group_runtime_inputs.setDeviceIndex(args.getDeviceIndex());
+    for (auto input : group_to_run->inputs()) {
+      group_runtime_inputs.push(tensor_map.at(input));
     }
+
+    auto fusion_to_run = segmented_fusion_->makeFusion(group_to_run);
+    auto& executor = executors_[group_to_run->groupId()];
+    auto group_runtime_outputs =
+        executor.inferOutputSizes(fusion_to_run.get(), group_runtime_inputs);
+    sg_inputs.push_back(std::move(group_runtime_inputs));
+
+    // map output args to tensor map
+    const auto& group_outputs = group_to_run->outputs();
+    for (const size_t group_out_i : c10::irange(group_outputs.size())) {
+      args.push(group_runtime_outputs[group_out_i]);
+      tensor_map.emplace(group_outputs[group_out_i], args.back());
+    }
+  }
+
+  auto compile_fusion = [this](
+                            const KernelArgumentHolder& input_args,
+                            SegmentedGroup* sg) mutable {
+    std::lock_guard<std::mutex> guard(compiling_);
+    c10::cuda::CUDAGuard dg(input_args.getDeviceIndex());
+    FUSER_PERF_SCOPE("FusionKernelRuntime::startAsyncCompile");
+    c10::Device device(c10::DeviceType::CUDA, input_args.getDeviceIndex());
+    compileKernel(input_args, sg);
   };
 
-  getThreadPool()->run(compile_fusion);
+  for (auto pos : c10::irange(runtime_workspace_.group_run_order.size())) {
+    auto group_to_run = runtime_workspace_.group_run_order.at(pos);
+    auto group_runtime_inputs = sg_inputs.at(pos);
+    auto fn = std::bind(compile_fusion, group_runtime_inputs, group_to_run);
+    getThreadPool()->run(fn);
+  }
 }
 
 // TODO: replace the boilerplate in runKernelWithInput
@@ -580,7 +579,7 @@ KernelArgumentHolder FusionKernelRuntime::compileKernel(
 
   auto& executor = executors_[group_id];
 
-  auto outputs = executor.inferOutputSizes(args, launch_params);
+  auto outputs = executor.inferOutputSizesWithValidation(args, launch_params);
   return outputs;
 }
 

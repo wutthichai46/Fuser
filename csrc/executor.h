@@ -63,6 +63,12 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   //! infers output sizes via returning non-allocated KernelArgumentHolder.
   //! this function is useful for async compilation for segmented fusion
   KernelArgumentHolder inferOutputSizes(
+      Fusion* fusion,
+      const KernelArgumentHolder& args);
+
+  //! infers output sizes via returning non-allocated KernelArgumentHolder.
+  //! this function is useful for async compilation for segmented fusion
+  KernelArgumentHolder inferOutputSizesWithValidation(
       const KernelArgumentHolder& args,
       const LaunchParams& launch_constraints);
 
@@ -303,6 +309,7 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   //! pushing scalar int 0 as a place holder; 2. this API doesn't actually
   //! allocate output in memory, but rather is used just to infer output sizes.
   KernelArgumentHolder evaluateOutputSizes(
+      Fusion* fusion,
       const KernelArgumentHolder& args,
       ExpressionEvaluator& expr_eval,
       const std::unordered_set<int>& alias_indices = {});
