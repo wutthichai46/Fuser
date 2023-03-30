@@ -176,6 +176,11 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     const at::ArrayRef<c10::IValue>& inputs) {
   FUSER_PERF_SCOPE("FusionExecutorCache::runFusionWithInputs");
 
+  compileFusionAsync(inputs);
+  while (!isCompiled(inputs)) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  }
+
   // permute input tensor for kernel execution. See Part_1 in Note [ Channels
   // Last support in nvfuser ]
   at::ArrayRef<c10::IValue> perm_inputs = inputs;
@@ -520,23 +525,32 @@ void FusionKernelRuntime::startAsyncCompile(KernelArgumentHolder& args) {
   auto compile_fusion = [this](
                             const KernelArgumentHolder& input_args,
                             SegmentedGroup* sg) mutable {
-    std::lock_guard<std::mutex> guard(compiling_);
-    c10::cuda::CUDAGuard dg(input_args.getDeviceIndex());
     FUSER_PERF_SCOPE("FusionKernelRuntime::startAsyncCompile");
+    //std::lock_guard<std::mutex> guard(compiling_);
+    c10::cuda::CUDAGuard dg(input_args.getDeviceIndex());
     c10::Device device(c10::DeviceType::CUDA, input_args.getDeviceIndex());
     compileKernel(input_args, sg);
   };
 
+  //std::cout << "kernels\t" << sg_inputs.size() << std::endl;
+
+  std::vector<std::thread> thread_list;
   for (auto pos : c10::irange(runtime_workspace_.group_run_order.size())) {
     auto group_to_run = runtime_workspace_.group_run_order.at(pos);
     auto group_runtime_inputs = sg_inputs.at(pos);
     auto fn = std::bind(compile_fusion, group_runtime_inputs, group_to_run);
-    getThreadPool()->run(fn);
+    //getThreadPool()->run(fn);
+    std::thread t(fn);
+    thread_list.emplace_back(std::move(t));
+  }
+
+  for (auto &t : thread_list) {
+    t.join();
   }
 }
 
 // TODO: replace the boilerplate in runKernelWithInput
-KernelArgumentHolder FusionKernelRuntime::compileKernel(
+void FusionKernelRuntime::compileKernel(
     const KernelArgumentHolder& args,
     SegmentedGroup* sg) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::compileKernel");
@@ -548,6 +562,7 @@ KernelArgumentHolder FusionKernelRuntime::compileKernel(
   //   is complied and run
   TORCH_INTERNAL_ASSERT(sg, "compileKernel: need valid group to run");
   auto group_id = sg->groupId();
+  //std::cout << "compiling\t" << group_id << std::endl;
 
   LaunchParams launch_params;
 
@@ -571,16 +586,8 @@ KernelArgumentHolder FusionKernelRuntime::compileKernel(
         compile_params.index_type.has_value(), "Kernel index type not defined");
     executors_[group_id].compileFusion(
         fusion_to_run.get(), args, launch_params, compile_params);
-  } else {
-    // TODO: this is a false negative assert, since we could be compiling
-    // something for elevated high water mark on block size.
-    TORCH_CHECK(false, "compiling an already compiled kernel");
-  }
-
-  auto& executor = executors_[group_id];
-
-  auto outputs = executor.inferOutputSizesWithValidation(args, launch_params);
-  return outputs;
+  } 
+  //std::cout << "done compiling" << std::endl;
 }
 
 void FusionKernelRuntime::mapFusionInputsToArgs(

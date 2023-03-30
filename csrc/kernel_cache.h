@@ -159,7 +159,7 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   //! Interface to compile a single kernel, either one kernel for single-kernel
   //! fusions, or a kernel for a segmentedGrouup in a segmented fusion. Returns
   //! the kernel outputs with tensor that doesn't own memory.
-  KernelArgumentHolder compileKernel(
+  void compileKernel(
       const KernelArgumentHolder& args,
       SegmentedGroup* sg);
 

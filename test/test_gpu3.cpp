@@ -5395,12 +5395,14 @@ TEST_F(NVFuserTest, AsyncCompilation_CUDA) {
 
   std::vector<c10::IValue> aten_inputs = {t0, t1, t2};
 
+  /*
   executor_cache.compileFusionAsync(aten_inputs);
 
   while (!executor_cache.isCompiled(aten_inputs)) {
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
     printf(".");
   }
+  */
 
   auto outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
