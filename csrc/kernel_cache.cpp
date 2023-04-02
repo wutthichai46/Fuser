@@ -176,10 +176,6 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     const at::ArrayRef<c10::IValue>& inputs) {
   FUSER_PERF_SCOPE("FusionExecutorCache::runFusionWithInputs");
 
-  compileFusionAsync(inputs);
-  while (!isCompiled(inputs)) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(200));
-  }
 
   // permute input tensor for kernel execution. See Part_1 in Note [ Channels
   // Last support in nvfuser ]
@@ -198,9 +194,13 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     perm_inputs = inputs_vec;
   }
 
-  KernelArgumentHolder args = prepareInputs(perm_inputs);
-
+  // compileFusionAsync(inputs);
+  KernelArgumentHolder args = prepareInputs(inputs);
   auto kernel_runtime = getKernelRuntimeFor(args);
+  kernel_runtime->startAsyncCompile(args);
+
+  //KernelArgumentHolder args = prepareInputs(perm_inputs);
+  //auto kernel_runtime = getKernelRuntimeFor(args);
   most_recent_runtime_ = kernel_runtime;
   int seq_id = 0;
   // Record kernel input and output tensors so profiler can construct
@@ -477,7 +477,7 @@ void FusionKernelRuntime::prepareRuntimeOrder() {
 }
 
 // passing args by value, since we will be modify this
-void FusionKernelRuntime::startAsyncCompile(KernelArgumentHolder& args) {
+void FusionKernelRuntime::startAsyncCompile(KernelArgumentHolder args) {
   // only single compilation is supported at this moment.
   std::unique_lock<std::mutex> unique_lock(mutex_, std::try_to_lock);
   TORCH_CHECK(
@@ -499,6 +499,7 @@ void FusionKernelRuntime::startAsyncCompile(KernelArgumentHolder& args) {
   mapFusionInputsToArgs(tensor_map, args);
 
   std::vector<KernelArgumentHolder> sg_inputs;
+  sg_inputs.reserve(runtime_workspace_.group_run_order.size());
   for (auto group_to_run : runtime_workspace_.group_run_order) {
     // TODO: index mode should be updated per segmented kernel
     // Prepare input vector
@@ -512,7 +513,6 @@ void FusionKernelRuntime::startAsyncCompile(KernelArgumentHolder& args) {
     auto& executor = executors_[group_to_run->groupId()];
     auto group_runtime_outputs =
         executor.inferOutputSizes(fusion_to_run.get(), group_runtime_inputs);
-    sg_inputs.push_back(std::move(group_runtime_inputs));
 
     // map output args to tensor map
     const auto& group_outputs = group_to_run->outputs();
@@ -520,11 +520,13 @@ void FusionKernelRuntime::startAsyncCompile(KernelArgumentHolder& args) {
       args.push(group_runtime_outputs[group_out_i]);
       tensor_map.emplace(group_outputs[group_out_i], args.back());
     }
+
+    sg_inputs.push_back(std::move(group_runtime_inputs));
   }
 
   auto compile_fusion = [this](
                             const KernelArgumentHolder& input_args,
-                            SegmentedGroup* sg) mutable {
+                            SegmentedGroup* sg) {
     FUSER_PERF_SCOPE("FusionKernelRuntime::startAsyncCompile");
     //std::lock_guard<std::mutex> guard(compiling_);
     c10::cuda::CUDAGuard dg(input_args.getDeviceIndex());
@@ -540,8 +542,7 @@ void FusionKernelRuntime::startAsyncCompile(KernelArgumentHolder& args) {
     auto group_runtime_inputs = sg_inputs.at(pos);
     auto fn = std::bind(compile_fusion, group_runtime_inputs, group_to_run);
     //getThreadPool()->run(fn);
-    std::thread t(fn);
-    thread_list.emplace_back(std::move(t));
+    thread_list.emplace_back(fn);
   }
 
   for (auto &t : thread_list) {
@@ -564,8 +565,6 @@ void FusionKernelRuntime::compileKernel(
   auto group_id = sg->groupId();
   //std::cout << "compiling\t" << group_id << std::endl;
 
-  LaunchParams launch_params;
-
   auto scheduler_entry = schedulers()[group_id].get();
 
   // Check that the heuristics are matched, in the case of segmented fusion
@@ -580,14 +579,14 @@ void FusionKernelRuntime::compileKernel(
     fusion_to_run = segmented_fusion_->makeFusion(sg);
     FusionGuard fg(fusion_to_run.get());
     scheduler_entry->schedule(fusion_to_run.get());
-    launch_params = scheduler_entry->params()->lparams;
+    auto launch_params = scheduler_entry->params()->lparams;
     auto compile_params = scheduler_entry->params()->cparams;
     TORCH_INTERNAL_ASSERT(
         compile_params.index_type.has_value(), "Kernel index type not defined");
     executors_[group_id].compileFusion(
         fusion_to_run.get(), args, launch_params, compile_params);
   } 
-  //std::cout << "done compiling" << std::endl;
+  //std::cout << "done compiling\t" << group_id << std::endl;
 }
 
 void FusionKernelRuntime::mapFusionInputsToArgs(
