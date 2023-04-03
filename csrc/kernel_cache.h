@@ -63,8 +63,7 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   //! query if we already have a compiled kernel for execution
   bool isCompiled() {
     std::unique_lock<std::mutex> lock0(mutex_, std::try_to_lock);
-    std::unique_lock<std::mutex> lock1(compiling_, std::try_to_lock);
-    if (!lock0.owns_lock() || !lock1.owns_lock()) {
+    if (!lock0.owns_lock()) {
       // compilation in progress
       return false;
     }
@@ -199,10 +198,6 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   bool profiling_ = false;
 
   std::mutex mutex_;
-  // TODO: remove `compiling_` mutex and rely on `mutex_` only.
-  // we don't need the second mutex, if only I could figure out how to pass
-  // unique_lock into lambda
-  std::mutex compiling_;
 
   // The heuristics and executor for most recent kernel launch
   ExecutorLog most_recent_executor_log_;

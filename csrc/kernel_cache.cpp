@@ -25,7 +25,7 @@ namespace nvfuser {
 
 namespace {
 
-#define THREAD_POOL_SIZE 10
+#define THREAD_POOL_SIZE 24
 
 // TODO: clean this up with some knobs
 c10::ThreadPool* getThreadPool() {
@@ -194,13 +194,10 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     perm_inputs = inputs_vec;
   }
 
-  // compileFusionAsync(inputs);
-  KernelArgumentHolder args = prepareInputs(inputs);
+  KernelArgumentHolder args = prepareInputs(perm_inputs);
   auto kernel_runtime = getKernelRuntimeFor(args);
   kernel_runtime->startAsyncCompile(args);
 
-  //KernelArgumentHolder args = prepareInputs(perm_inputs);
-  //auto kernel_runtime = getKernelRuntimeFor(args);
   most_recent_runtime_ = kernel_runtime;
   int seq_id = 0;
   // Record kernel input and output tensors so profiler can construct
@@ -483,10 +480,6 @@ void FusionKernelRuntime::startAsyncCompile(KernelArgumentHolder args) {
   TORCH_CHECK(
       unique_lock.owns_lock(),
       "Calling startAsyncCompile on a FusionKernelRuntime that's already starting a compilation thread is not supported");
-  std::unique_lock<std::mutex> unique_lock2(compiling_, std::try_to_lock);
-  TORCH_CHECK(
-      unique_lock2.owns_lock(),
-      "Calling startAsyncCompile on a FusionKernelRuntime that's already starting a compilation thread is not supported 2");
 
   TORCH_INTERNAL_ASSERT(
       args.size() == segmented_fusion_->inputs().size(),
@@ -528,27 +521,32 @@ void FusionKernelRuntime::startAsyncCompile(KernelArgumentHolder args) {
                             const KernelArgumentHolder& input_args,
                             SegmentedGroup* sg) {
     FUSER_PERF_SCOPE("FusionKernelRuntime::startAsyncCompile");
-    //std::lock_guard<std::mutex> guard(compiling_);
     c10::cuda::CUDAGuard dg(input_args.getDeviceIndex());
     c10::Device device(c10::DeviceType::CUDA, input_args.getDeviceIndex());
     compileKernel(input_args, sg);
   };
 
-  //std::cout << "kernels\t" << sg_inputs.size() << std::endl;
+  std::cout << "kernels\t" << sg_inputs.size() << std::endl;
 
-  std::vector<std::thread> thread_list;
+  //std::vector<std::thread> thread_list;
+  //thread_list.reserve(sg_inputs.size());
   for (auto pos : c10::irange(runtime_workspace_.group_run_order.size())) {
     auto group_to_run = runtime_workspace_.group_run_order.at(pos);
     auto group_runtime_inputs = sg_inputs.at(pos);
     auto fn = std::bind(compile_fusion, group_runtime_inputs, group_to_run);
-    //getThreadPool()->run(fn);
-    thread_list.emplace_back(fn);
+    getThreadPool()->run(fn);
+    //thread_list.emplace_back(fn);
   }
 
+  getThreadPool()->waitWorkComplete();
+
+  /*
   for (auto &t : thread_list) {
     t.join();
   }
+  */
 }
+
 
 // TODO: replace the boilerplate in runKernelWithInput
 void FusionKernelRuntime::compileKernel(
