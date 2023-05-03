@@ -159,7 +159,7 @@ TORCH_CUDA_CU_API void queryTargetGPUVersion(
 // return false if arg's type, number of dimensions, and device, doesn't match
 // param and provided c10:device
 bool validateKernelArgTensor(
-    const at::Tensor& arg,
+    const TensorArgAbstract* arg,
     const Val* param,
     const c10::Device& device,
     std::stringstream& msg) {
@@ -169,78 +169,30 @@ bool validateKernelArgTensor(
     return false;
   }
 
-  if (is_cpu_scalar(arg) && !param->as<TensorView>()->isCpuScalar()) {
-    msg << "Argument is CPU Scalar Tensor, but parameter is not.\n";
-    return false;
-  }
-
-  if (!is_cpu_scalar(arg) && !arg.is_cuda()) {
-    msg << "Argument is a CPU tensor which is not supported in fusions.\n";
-    return false;
-  }
-
   // Check the rank of the tensors.
-  size_t arg_dim = arg.dim();
   // Note: This requires current Fusion to be active.
-  // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
   size_t param_dim = TensorDomain::noReductions(
                          param->as<TensorView>()->getMaybeRFactorDomain())
                          .size();
   // see [Note - broadcast support in integration]
   // Because of broadcasting support handled in integration, we relax the rank
   // check as necessary.
-  if (arg_dim > param_dim) {
-    msg << "Argument tensor's rank is " << arg_dim << ", but the parameter is "
-        << param_dim << "\n";
+  if (arg->getRank() > (int64_t)param_dim) {
+    msg << "Argument tensor's rank is " << arg->getRank()
+        << ", but the parameter is " << param_dim << "\n";
     return false;
   }
 
-  if (!is_cpu_scalar(arg) && arg.device() != device) {
-    msg << "Argument is on device that is not compiled for."
-        << "\n";
+  if (device.is_cuda() && arg->getDevice() != device.index()) {
+    msg << "Argument is on device that is not compiled for.\n";
     return false;
   }
+
   // Check element type
-  at::ScalarType arg_data_type = arg.scalar_type();
-  DataType param_data_type = *param->getDataType();
-  bool match = false;
-  // TODO: remove this switch with `aten_to_data_type`
-  switch (arg_data_type) {
-    case at::ScalarType::Double:
-      match = param_data_type == DataType::Double;
-      break;
-    case at::ScalarType::Half:
-      match = param_data_type == DataType::Half;
-      break;
-    case at::ScalarType::BFloat16:
-      match = param_data_type == DataType::BFloat16;
-      break;
-    case at::ScalarType::Float:
-      match = param_data_type == DataType::Float;
-      break;
-    case at::ScalarType::Long:
-      match = param_data_type == DataType::Int;
-      break;
-    case at::ScalarType::Int:
-      match = param_data_type == DataType::Int32;
-      break;
-    case at::ScalarType::Bool:
-      match = param_data_type == DataType::Bool;
-      break;
-    case at::ScalarType::ComplexFloat:
-      match = param_data_type == DataType::ComplexFloat;
-      break;
-    case at::ScalarType::ComplexDouble:
-      match = param_data_type == DataType::ComplexDouble;
-      break;
-    default:
-      msg << "Argument element type, " << arg_data_type << ", is not supported."
-          << "\n";
-      return false;
-  }
+  bool match = arg->getDataType() == *param->getDataType();
   if (!match)
-    msg << "Argument element type is " << arg_data_type
-        << ", but the parameter is " << param_data_type << "\n";
+    msg << "Argument element type is " << arg->getDataType()
+        << ", but the parameter is " << *param->getDataType() << "\n";
   return match;
 }
 
@@ -293,8 +245,7 @@ bool validateKernelArg(
   if (auto tensor_arg_abstract = dynamic_cast<const TensorArgAbstract*>(arg)) {
     // TODO: don't use get tensor here. We would want to remove tensor reference
     // for async compilation
-    return validateKernelArgTensor(
-        tensor_arg_abstract->getTensor(), param, device, msg);
+    return validateKernelArgTensor(tensor_arg_abstract, param, device, msg);
   } else if (arg->isType(ArgType::CpuScalarTensor)) {
     // TODO: merge this one with above
     // TODO: we need to check cpu scalar dtyp matches param
@@ -315,8 +266,8 @@ bool checkSameStride(const std::vector<at::Tensor>& tensors) {
     return true;
   }
   for (const auto idx : c10::irange(tensors.size() - 1)) {
-    auto current_tensor = tensors.at(idx);
-    auto next_tensor = tensors.at(idx + 1);
+    const auto& current_tensor = tensors.at(idx);
+    const auto& next_tensor = tensors.at(idx + 1);
 
     if (current_tensor.ndimension() != next_tensor.ndimension()) {
       return false;
@@ -338,7 +289,7 @@ bool checkSameContiguity(const std::vector<at::Tensor>& tensors) {
   }
 
   // Determine if the reference tensor is contiguous
-  auto reference_tensor = tensors.front();
+  const auto& reference_tensor = tensors.front();
   int64_t expected_stride = 1;
   for (const auto i : c10::irange(1, reference_tensor.ndimension() + 1)) {
     int64_t ind = reference_tensor.ndimension() - i;
@@ -403,7 +354,7 @@ void validateKernelInputs(
 
 void validateKernelOutputs(
     Fusion* fusion,
-    const std::vector<at::Tensor>& outputs,
+    const KernelArgumentHolder& outputs,
     const c10::Device& device) {
   FUSER_PERF_SCOPE("executor_utils::ValidateKernelOutputs");
 
@@ -418,9 +369,9 @@ void validateKernelOutputs(
   std::stringstream msg;
   bool mismatch = false;
   for (const auto i : c10::irange(outputs.size())) {
-    const at::Tensor& arg = outputs[i];
+    const ArgAbstract* arg = outputs[i];
     const Val* param = fusion->outputs()[i];
-    mismatch = !validateKernelArgTensor(arg, param, device, msg) || mismatch;
+    mismatch = !validateKernelArg(arg, param, device, msg) || mismatch;
   }
   TORCH_INTERNAL_ASSERT(
       !mismatch, "Found one or more invalid arguments: ", msg.str());

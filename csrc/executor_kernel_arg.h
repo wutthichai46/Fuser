@@ -198,6 +198,7 @@ struct BoolArg : public ArgAbstract {
 };
 
 struct TensorArgAbstract : ArgAbstract {
+  virtual int8_t getDevice() const = 0;
   virtual int64_t getRank() const = 0;
   virtual int64_t getSize(int64_t i) const = 0;
   virtual int64_t getStride(int64_t i) const = 0;
@@ -218,9 +219,12 @@ struct TensorArg : public TensorArgAbstract {
   TENSOR_TYPE instance_;
   at::Tensor tensor_;
   bool index_type_resolved_ = false;
+  int8_t device_index_ = 0;
 
   TensorArg(const at::Tensor& tensor, bool index_type_resolved)
       : tensor_(tensor), index_type_resolved_(index_type_resolved) {
+    TORCH_INTERNAL_ASSERT(tensor.device().is_cuda());
+    setDevice(tensor.device().index());
     setPointer(tensor.data_ptr());
     for (const auto i : c10::irange(tensor.ndimension())) {
       setSize(i, tensor.sizes()[i]);
@@ -228,6 +232,9 @@ struct TensorArg : public TensorArgAbstract {
     }
   }
 
+  void setDevice(int8_t device_index) {
+    device_index_ = device_index;
+  }
   void setSize(int64_t i, int64_t size) {
     instance_.setSize(i, (typename TENSOR_TYPE::index_type)size);
   }
@@ -241,6 +248,9 @@ struct TensorArg : public TensorArgAbstract {
     tensor_ = tensor;
   }
 
+  int8_t getDevice() const override {
+    return device_index_;
+  }
   int64_t getSize(int64_t i) const override {
     return instance_.getSize(i);
   }
