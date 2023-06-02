@@ -1,6 +1,12 @@
 import torch
 import math
-from pytest_core import elementwise_unary_generator, _elementwise_unary_torch, OpInfo
+from pytest_core import (
+    elementwise_unary_generator,
+    _elementwise_unary_torch,
+    OpInfo,
+    slice_sample_generator,
+    slice_error_sample_generator,
+)
 from functools import partial
 from make_tensor import int_float_dtypes
 
@@ -262,5 +268,21 @@ elementwise_unary_ops.append(tanh_opinfo)
 
 """ End Unary-Float Operations """
 
+""" Start Shape Operations """
+
+shape_ops = []
+
+# TODO Add Jax Reference
+slice_opinfo = OpInfo(
+    lambda fd: fd.ops.slice,
+    "slice",
+    sample_input_generator=slice_sample_generator,
+    error_input_generator=slice_error_sample_generator,
+)
+shape_ops.append(slice_opinfo)
+
+""" End Shape Operations """
+
 # Puts all opinfos into the "opinfos" list
 opinfos.extend(elementwise_unary_ops)
+opinfos.extend(shape_ops)

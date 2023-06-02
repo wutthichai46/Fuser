@@ -3,6 +3,9 @@ from make_tensor import make_tensor, all_dtypes
 from functools import partial, wraps
 from typing import Callable
 import torch
+import itertools
+
+ErrorSample = namedtuple("ErrorSample", ["kwargs", "ex_str"])
 
 
 class SampleInput:
@@ -54,8 +57,10 @@ class OpInfo:
     ):
         return self.sample_input_generator(self, torch_dtype, requires_grad, **kwargs)
 
-    def error_inputs(self, **kwargs):
-        return self.error_input_generator(self, **kwargs)
+    def error_inputs(
+        self, torch_dtype: torch.dtype, *, requires_grad: bool = False, **kwargs
+    ):
+        return self.error_input_generator(self, torch_dtype, requires_grad, **kwargs)
 
     def dtypes(self):
         return self._dtypes
@@ -127,3 +132,82 @@ def _elementwise_unary_torch(op):
         return op(torch.tensor(x)).item()
 
     return _fn
+
+
+# TODO: add stride testing
+def slice_sample_generator(op, dtype, requires_grad, **kwargs):
+    make_arg = partial(
+        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+
+    # shape, start_indices, end_indices
+    cases = (
+        ((5, 7, 8), (1, 0, 3), (2, 6, 8)),
+        ((3,), (1,), (2,)),
+    )
+
+    for shape, start_indices, end_indices in cases:
+        a = make_arg(shape)
+        yield SampleInput(a, start_indices, end_indices)
+
+
+def slice_error_sample_generator(op, dtype, requires_grad, **kwargs):
+    make_arg = partial(
+        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+
+    # shape
+    cases = ((10, 10), (5, 5))
+
+    check_start_indices = ErrorSample(
+        {"start_indices": [-1, -2], "end_indices": [5, 5], "strides": [7, 7]},
+        "Slice operation start_indices must be greater-than-or-equal-to 0.",
+    )
+
+    check_end_indices = ErrorSample(
+        {"start_indices": [3, 4], "end_indices": [1, 2], "strides": [1, 1]},
+        "Slice operation end_indices must be greater-than-or-equal-to start_indices.",
+    )
+
+    check_strides = ErrorSample(
+        {"start_indices": [0, 0], "end_indices": [5, 5], "strides": [5, 5]},
+        "nvFuser Limitation: All slice operation strides must be of size 1.",
+    )
+
+    check_tensor_dims = ErrorSample(
+        {"start_indices": [0, 0, 0], "end_indices": [4, 4, 4], "strides": [1, 1, 1]},
+        "Number of tensor dimensions does not match slice dimensions!",
+    )
+
+    check_slice_dims_start = ErrorSample(
+        {"start_indices": [0, 0, 0], "end_indices": [4, 4], "strides": [1, 1]},
+        "Slice start_indices and strides don't match!",
+    )
+
+    check_slice_dims_end = ErrorSample(
+        {"start_indices": [0, 0], "end_indices": [4, 4, 4], "strides": [1, 1]},
+        "Slice indexing attribute dimensions don't match!",
+    )
+
+    check_slice_dims_stride = ErrorSample(
+        {"start_indices": [0, 0], "end_indices": [4, 4], "strides": [1, 1, 1]},
+        "Slice start_indices and strides don't match!",
+    )
+
+    check_nostrides = ErrorSample(
+        {"start_indices": [2, 2], "end_indices": [4, 4]}, None
+    )
+    error_cases = [
+        check_start_indices,
+        check_end_indices,
+        check_strides,
+        check_tensor_dims,
+        check_slice_dims_start,
+        check_slice_dims_end,
+        check_slice_dims_stride,
+        check_nostrides,
+    ]
+
+    for shape, es in itertools.product(cases, error_cases):
+        input_tensor = make_arg(shape)
+        yield SampleInput(input_tensor, **es.kwargs), RuntimeError, es.ex_str

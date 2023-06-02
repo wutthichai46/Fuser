@@ -2,6 +2,7 @@ import torch
 from torch.testing import assert_close
 from pytest_framework import ops, run_snippet
 from pytest_opinfos import opinfos
+from typing import Optional
 
 from torch.testing._internal.common_utils import TEST_WITH_ROCM
 from torch.testing._internal.jit_utils import RUN_CUDA
@@ -23,25 +24,30 @@ def is_pre_volta():
     return prop.major < 7
 
 
-def fusion_func(fd: FusionDefinition, operation, inputs):
+def fusion_func(fd: FusionDefinition, operation, inputs, **kwargs):
     nvf_inputs = [fd.from_pytorch(x) for x in inputs]
-    t1 = operation(fd)(*nvf_inputs)
+    t1 = operation(fd)(*nvf_inputs, **kwargs)
     fd.add_output(t1)
 
 
-def snippet_errors(nvf_op, sample, ex_type):
-    ex = None
+def snippet_errors(
+    nvf_op, sample, exception_type: Exception, exception_str: Optional[str]
+):
+    exception = None
     try:
         with FusionDefinition() as fd:
-            fusion_func(fd, nvf_op, sample.args)
-        fd.execute(*sample.args, **sample.kwargs)
+            fusion_func(fd, nvf_op, sample.args, **sample.kwargs)
+        fd.execute(*sample.args)
     except Exception as e:
-        ex = e
+        exception = e
 
-    assert ex is not None, "Expected an exception"
-    assert ex_type is type(
-        ex
-    ), f"Expected an exception with type {ex_type}, but found ex={ex}"
+    assert exception is not None, "Expected an exception"
+    assert exception_type is type(
+        exception
+    ), f"Expected an exception with type {exception_type}, but found exception={exception}"
+    assert exception_str is None or exception_str in str(
+        exception
+    ), "Failed to find correct expection error message"
 
 
 def snippet_torch_consistency(nvf_op, torch_op, sample):
@@ -57,9 +63,11 @@ def snippet_torch_consistency(nvf_op, torch_op, sample):
 
 
 @ops(tuple(op for op in opinfos if op.error_input_generator is not None))
-def test_errors(op):
-    for sample, ex_type in op.error_inputs():
-        result = run_snippet(snippet_errors, op, None, op.op, sample, ex_type)
+def test_errors(op, dtype: torch.dtype):
+    for sample, ex_type, ex_regex in op.error_inputs(dtype):
+        result = run_snippet(
+            snippet_errors, op, dtype, op.op, sample, ex_type, ex_regex
+        )
         if result is not None:
             return result
 
