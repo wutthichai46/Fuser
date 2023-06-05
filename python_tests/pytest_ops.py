@@ -1,6 +1,9 @@
 import torch
+import numpy as np
+
 from torch.testing import assert_close
 from pytest_framework import ops, run_snippet
+from pytest_core import ReferenceType, OpInfo
 from pytest_opinfos import opinfos
 from typing import Optional
 
@@ -25,7 +28,7 @@ def is_pre_volta():
 
 
 def fusion_func(fd: FusionDefinition, operation, inputs, **kwargs):
-    nvf_inputs = [fd.from_pytorch(x) for x in inputs]
+    nvf_inputs = [fd.from_pytorch(x) for x in inputs if type(x) is torch.Tensor]
     t1 = operation(fd)(*nvf_inputs, **kwargs)
     fd.add_output(t1)
 
@@ -62,6 +65,36 @@ def snippet_torch_consistency(nvf_op, torch_op, sample):
     assert_close(nvfuser_result[0], torch_result, equal_nan=True, atol=1e-3, rtol=0)
 
 
+def snippet_jax_consistency(nvf_op, jax_op, sample):
+    with FusionDefinition() as fd:
+        fusion_func(fd, nvf_op, sample.args, **sample.kwargs)
+    nvfuser_result = fd.execute(sample.args, **sample.kwargs)
+
+    jax_sample = sample.jax()
+    jax_result = jax_op(*jax_sample.args, **jax_sample.kwargs)
+
+    # NOTE: this strange unpacking is to handle NumPy's and JAX's sometimes odd
+    #   number vs. array representation. In particular, NumPy can mimic
+    #   Python numbers, but `asarray` doesn't understand this mimicry
+    np_array = np.array(jax_result)
+    if np_array.shape == ():
+        jax_result = torch.tensor(np_array.item(), device=nvfuser_result[0].device)
+    else:
+        jax_result = torch.asarray(np_array, device=nvfuser_result[0].device)
+
+    # NOTE: dtype is not checked because jax will translate int64, float64, and complex128 to int32, float32 and complex64
+    assert_close(nvfuser_result[0], jax_result, equal_nan=True, check_dtype=False)
+
+
+def snippet_consistency(reference_type):
+    if reference_type == ReferenceType.Pytorch:
+        return snippet_torch_consistency
+    elif reference_type == ReferenceType.Jax:
+        return snippet_jax_consistency
+    else:
+        return None
+
+
 @ops(tuple(op for op in opinfos if op.error_input_generator is not None))
 def test_errors(op, dtype: torch.dtype):
     for sample, ex_type, ex_regex in op.error_inputs(dtype):
@@ -72,15 +105,15 @@ def test_errors(op, dtype: torch.dtype):
             return result
 
 
-@ops(tuple(op for op in opinfos if op.torch_reference is not None))
-def test_consistency(op, dtype: torch.dtype):
+@ops(tuple(op for op in opinfos if op.reference is not None))
+def test_consistency(op: OpInfo, dtype: torch.dtype):
     for sample in op.sample_inputs(dtype):
         result = run_snippet(
-            snippet_torch_consistency,
+            snippet_consistency(op.refernce_fn_type),
             op,
             dtype,
             op.op,
-            op.torch_reference,
+            op.reference,
             sample,
         )
         if result is not None:

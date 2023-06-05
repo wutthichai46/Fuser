@@ -4,8 +4,35 @@ from functools import partial, wraps
 from typing import Callable
 import torch
 import itertools
+from enum import Enum
+
+
+class ReferenceType(Enum):
+    Pytorch = 1
+    Jax = 2
+    Numpy = 3
+    Python = 4
+
 
 ErrorSample = namedtuple("ErrorSample", ["kwargs", "ex_str"])
+
+_torch_to_jax_dtype_map = None
+import jax.numpy as jnp
+
+_torch_to_jax_dtype_map = {
+    torch.bool: jnp.bool_,
+    torch.uint8: jnp.uint8,
+    torch.int8: jnp.int8,
+    torch.int16: jnp.int16,
+    torch.int32: jnp.int32,
+    torch.int64: jnp.int64,
+    torch.bfloat16: jnp.bfloat16,
+    torch.float16: jnp.float16,
+    torch.float32: jnp.float32,
+    torch.float64: jnp.float64,
+    torch.complex64: jnp.complex64,
+    torch.complex128: jnp.complex128,
+}
 
 
 class SampleInput:
@@ -23,6 +50,19 @@ class SampleInput:
     def __repr__(self):
         return f"[SampleInput args={self.args} kwargs={self.kwargs}]"
 
+    def jax(self):
+        def to_jax(t):
+            if isinstance(t, torch.Tensor):
+                return jnp.array(t.cpu().numpy())
+            if isinstance(t, torch.dtype):
+                return _torch_to_jax_dtype_map[t]
+            return t
+
+        # Thunder uses tree_map here. We assume arguments have flat hierarchy.
+        # TODO add support for kwargs
+        args = map(to_jax, self.args)
+        return SampleInput(*args, *self.kwargs.values())
+
 
 class OpInfo:
     """Operator information and helper functions for acquiring it."""
@@ -37,7 +77,8 @@ class OpInfo:
         dtypes=None,
         sample_input_generator,
         error_input_generator=None,
-        torch_reference=None,
+        reference=None,
+        reference_type=ReferenceType.Pytorch,
         domain=(None, None),
     ):
         self.op = op
@@ -45,7 +86,8 @@ class OpInfo:
         self._dtypes = dtypes if dtypes is not None else all_dtypes
         self.sample_input_generator = sample_input_generator
         self.error_input_generator = error_input_generator
-        self.torch_reference = torch_reference
+        self.reference = reference
+        self.refernce_fn_type = reference_type
         self.domain = OpInfo.Domain(*domain)
 
     def __call__(self, *args, **kwargs):
@@ -148,7 +190,7 @@ def slice_sample_generator(op, dtype, requires_grad, **kwargs):
 
     for shape, start_indices, end_indices in cases:
         a = make_arg(shape)
-        yield SampleInput(a, start_indices, end_indices)
+        yield SampleInput(a, start_indices=start_indices, end_indices=end_indices)
 
 
 def slice_error_sample_generator(op, dtype, requires_grad, **kwargs):
