@@ -9,7 +9,7 @@ from functools import partial, wraps
 import torch
 from torch.testing import make_tensor
 
-from pytest_core import OpInfo, SampleInput, ErrorSample
+from pytest_core import OpInfo, SampleInput, ErrorSample, Domain
 from nvfuser import DataType
 
 # TODO Add small value, large value, and extremal-valued samples
@@ -146,6 +146,82 @@ def define_tensor_error_generator(op, dtype, requires_grad, **kwargs):
     )
     for es in error_cases:
         yield SampleInput(input_tensor, **es.kwargs), es.ex_type, es.ex_str
+
+
+def index_select_generator(op, dtype, requires_grad, **kwargs):
+    make_arg = partial(
+        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+    make_index = partial(make_tensor, device="cuda", requires_grad=False)
+
+    # a.shape, dim, b.shape
+    # nvFuser: index array can't have zero elements
+    # nvFuser: index array must be 1D
+    cases = (
+        ((4, 2, 3), 0, (8)),
+        ((4, 2, 3), 1, (7)),
+        ((4, 2, 3), 2, (2)),
+        ((4,), 0, (8)),
+        ((4,), 0, (1)),
+        ((4, 1), 0, (3)),
+        ((4, 1), 1, (5)),
+        ((1, 0, 3), 0, (8)),
+    )
+
+    for shape_a, dim, shape_b in cases:
+        for index_dtype in [torch.int, torch.long]:
+            a = make_arg(shape_a)
+            b = make_index(shape_b, low=0, high=shape_a[dim], dtype=index_dtype)
+            yield SampleInput(a, b, dim)
+
+
+def index_select_error_generator(op, dtype, requires_grad, **kwargs):
+    # torch.index_select(input: Tensor, dim: int, index: Tensor)
+    make_arg = partial(
+        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+
+    # a.shape, b.shape
+    cases = (
+        ((4, 2, 3), (8)),
+        ((4, 2, 3), (7)),
+    )
+
+    # 1) out-of-bounds, incorrect dtype === dim
+    # 2) out-of-bounds, incorrect dtype === index tensor
+
+    lower_bound_axis = (
+        lambda dims: (-dims - 1),
+        lambda axis_size: Domain(0, axis_size),
+        torch.long,
+        RuntimeError,
+        "index_select on invalid axis",
+    )
+    upper_bound_axis = (
+        lambda dims: dims,
+        lambda axis_size: Domain(0, axis_size),
+        torch.long,
+        RuntimeError,
+        "index_select on invalid axis",
+    )
+
+    error_cases = [
+        # lower_bound_axis,
+        upper_bound_axis,
+    ]
+
+    for case, es in itertools.product(cases, error_cases):
+        a_shape, b_shape = case
+        dim_fn, b_domain_fn, b_dtype, ex_type, ex_str = es
+
+        input_tensor = make_arg(a_shape)
+        dim = dim_fn(input_tensor.ndim)
+
+        b_domain = b_domain_fn(a_shape[0])
+        b_tensor = make_arg(
+            b_shape, low=b_domain.low, high=b_domain.high, dtype=b_dtype
+        )
+        yield SampleInput(input_tensor, b_tensor, dim), ex_type, ex_str
 
 
 # TODO: add stride testing

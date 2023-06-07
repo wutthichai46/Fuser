@@ -14,6 +14,8 @@ from pytest_input_generators import (
     _elementwise_unary_torch,
     define_tensor_generator,
     define_tensor_error_generator,
+    index_select_generator,
+    index_select_error_generator,
     slice_generator,
     slice_error_generator,
     reduction_error_generator,
@@ -72,6 +74,21 @@ normalization_ops.append(var_mean_opinfo)
 """ Start Shape Operations """
 
 shape_ops = []
+
+
+def torch_index_select_wrapper(a, b, dim):
+    # remap input args to pytorch's function signature
+    return torch.index_select(a, dim, b)
+
+
+index_select_opinfo = OpInfo(
+    lambda fd: fd.ops.index_select,
+    "index_select",
+    sample_input_generator=index_select_generator,
+    error_input_generator=index_select_error_generator,
+    reference=torch_index_select_wrapper,
+)
+shape_ops.append(index_select_opinfo)
 
 slice_opinfo = OpInfo(
     lambda fd: fd.ops.slice,
