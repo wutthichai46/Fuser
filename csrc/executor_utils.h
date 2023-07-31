@@ -44,6 +44,15 @@ void validateKernelOutputs(
     const std::vector<at::Tensor>& outputs,
     const c10::Device& device);
 
+// TODO: rename this function
+void bindInputForExprEvaluation(
+    Val* val,
+    const ArgAbstract* arg,
+    bool check_consistency,
+    ExpressionEvaluator& expr_eval,
+    bool legacy = true);
+
+// TODO: remove this function
 //! Bind input values to runtime values
 TORCH_CUDA_CU_API ExpressionEvaluator bindInputs(
     const KernelArgumentHolder& args,
@@ -61,7 +70,7 @@ struct NvrtcFunction {
 
 // Returns executable function and the ptxas log from compilation
 std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
-    c10::optional<std::reference_wrapper<const std::string>> kernel_code,
+    std::optional<std::reference_wrapper<const std::string>> kernel_code,
     const std::string& code,
     const std::string& func_name,
     int64_t id,

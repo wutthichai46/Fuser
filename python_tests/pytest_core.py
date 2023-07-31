@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Owner(s): ["module: nvfuser"]
 
-from pytest_utils import all_dtypes
+from pytest_utils import all_dtypes, ArgumentType
 from typing import Callable, Optional
 import torch
 import jax.numpy as jnp
@@ -96,17 +96,20 @@ class OpInfo:
     # Generates error inputs
     error_input_generator: Callable = None
 
+    # Function of FusionDefintion operations for valid inputs
+    fd_correctness_fn: Callable = None
+
+    # Function of FusionDefintion operations for error inputs
+    fd_error_input_fn: Callable = None
+
     # Reference function for operation
     reference: Callable = None
 
     # Designate which framework defines the reference
     reference_type: ReferenceType = ReferenceType.Pytorch
 
-    # Operations that define fusion inputs such as define_tensor, define_vector, define_scalar
-    is_fusion_input_op: bool = False
-
     # Nvfuser requires reduction axes to be constant values.
     # symbolic_parameter_list specifies whether an operation's parameters are symbolic.
     # All keyword arguments are considered constant.
     # If symbolic_parameter_list is None, then we assume all parameters to be symbolic.
-    symbolic_parameter_list: Optional[list[bool]] = None
+    symbolic_parameter_list: Optional[list[ArgumentType]] = None
