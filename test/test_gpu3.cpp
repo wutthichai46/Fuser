@@ -9594,6 +9594,39 @@ TEST_F(NVFuserTest, ConstLongExpressions) {
   testValidate(fusion, outputs, {}, {t0}, __LINE__, __FILE__);
 }
 
+TEST_F(NVFuserTest, UnAlignedWarpReduce) {
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = sum(tv1, {1});
+  auto tv3 = add(tv2, IrBuilder::create<Val>(1.0));
+  fusion.addOutput(tv3);
+
+  tv1->axis(-1)->parallelize(ParallelType::TIDx);
+  tv2->axis(-1)->parallelize(ParallelType::TIDx);
+  tv1->axis(-1)->padToMultipleOfWarp(32);
+  tv2->axis(-1)->padToMultipleOfWarp(32);
+  tv3->axis(0)->parallelize(ParallelType::Unswitch);
+  inlineMost();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::ones({1, 17}, options);
+  std::vector<c10::IValue> aten_inputs = {t0};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto outputs = fe.runFusion(aten_inputs);
+
+  auto ref = (t0 + 1).sum({1}) + 1;
+
+  testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
