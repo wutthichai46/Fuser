@@ -501,25 +501,82 @@ TEST_F(NVFuserTest, GridReduce) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
-
-  auto tv0 = makeContigTensor(2);
+  auto dtype = DataType::Float;
+  auto tv0 = makeContigTensor(2, dtype);
   fusion.addInput(tv0);
+  if (dtype == DataType::Half) {
+    tv0 = castOp(DataType::Float, tv0);
+  }
   auto tv1 = sum(tv0, {-1});
+  if (dtype == DataType::Half) {
+    tv1 = castOp(DataType::Float, tv1);
+  }
   fusion.addOutput(tv1);
 
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
 
   auto test = [&](int num_elements) {
     at::Tensor t0 = at::ones({66, num_elements}, options);
     std::vector<c10::IValue> aten_inputs = {t0};
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto outputs = fec.runFusionWithInputs(aten_inputs);
-
+    FusionExecutorCache fec(std::move(fusion_ptr));
+    auto outputs = fec.runFusionWithInputs(aten_inputs);
     testValidate(
         &fusion, outputs, aten_inputs, {t0.sum({-1})}, __LINE__, __FILE__);
   };
-  for (auto n : {16384}) {
+
+  // grid reduction: 6 us
+  // cluster reduction: 5.7 us
+  for (auto n : {49152}) {
+    test(n);
+  }
+}
+
+TEST_F(NVFuserTest, TMP) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeContigTensor(2);
+  fusion.addInput(tv0);
+
+  auto tv1 = add(tv0, IrBuilder::create<Val>(0.0));
+  auto tv2 = add(tv0, IrBuilder::create<Val>(0.0));
+  auto tv3 = add(tv0, IrBuilder::create<Val>(0.0));
+  auto tv4 = add(tv0, IrBuilder::create<Val>(0.0));
+
+  auto tv1sum = sum(tv1, {1});
+  auto tv2sum = sum(tv2, {1});
+  auto tv3sum = sum(tv3, {1});
+  auto tv4sum = sum(tv4, {1});
+
+  auto tvout12 = add(tv1sum, tv2sum);
+  auto tvout34 = add(tv3sum, tv4sum);
+  auto tvout = add(tvout12, tvout34);
+  fusion.addOutput(tvout);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto test = [&](int num_elements) {
+    at::Tensor t0 = at::ones({20, num_elements}, options);
+    std::vector<c10::IValue> aten_inputs = {t0};
+
+    FusionExecutorCache fec(std::move(fusion_ptr));
+    auto outputs = fec.runFusionWithInputs(aten_inputs);
+    auto t1 = t0 + 0.0;
+    auto t2 = t0 + 0.0;
+    auto t3 = t0 + 0.0;
+    auto t4 = t0 + 0.0;
+    auto t5 = t1 + t2 + t3 + t4;
+    auto t6 = t5.sum({-1});
+    std::cout << t6 << std::endl;
+    std::cout << outputs[0] << std::endl;
+    testValidate(&fusion, outputs, aten_inputs, {t6}, __LINE__, __FILE__);
+  };
+  // grid reduction: 16 us
+  // cluster reduction: 5.7 us
+  for (auto n : {49152}) {
     test(n);
   }
 }

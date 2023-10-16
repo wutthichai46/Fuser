@@ -177,6 +177,11 @@ class ParallelTypeBitmap {
     return (bitset_ & kCIDBits).any();
   }
 
+  //! Return true if KIDx/y/z is included
+  bool hasKID() const {
+    return (bitset_ & kKIDBits).any();
+  }
+
   //! Set all of the TID flags
   ParallelTypeBitmap& setAllTID() {
     *this |= ParallelTypeBitmap(kTIDBits);
@@ -195,11 +200,18 @@ class ParallelTypeBitmap {
     return *this;
   }
 
+  //! Set all of the KID flags
+  ParallelTypeBitmap& setAllKID() {
+    *this |= ParallelTypeBitmap(kKIDBits);
+    return *this;
+  }
+
   //! Set all flags
   ParallelTypeBitmap& setAll() {
     setAllTID();
     setAllBID();
     setAllCID();
+    setAllKID();
     return *this;
   }
 
@@ -227,11 +239,20 @@ class ParallelTypeBitmap {
     return *this;
   }
 
+  //! Clear all of the KID flags
+  ParallelTypeBitmap& clearAllKID() {
+    auto bid_bits = ParallelTypeBitmap(kKIDBits);
+    auto not_bid_bits = ~bid_bits;
+    *this &= not_bid_bits;
+    return *this;
+  }
+
   //! Clear all flags
   ParallelTypeBitmap& clearAll() {
     clearAllTID();
     clearAllBID();
     clearAllCID();
+    clearAllKID();
     return *this;
   }
 
@@ -272,6 +293,11 @@ class ParallelTypeBitmap {
       (1u << getParallelTypeBitMapOffset(ParallelType::BIDx)) |
       (1u << getParallelTypeBitMapOffset(ParallelType::BIDy)) |
       (1u << getParallelTypeBitMapOffset(ParallelType::BIDz))};
+
+  static constexpr std::bitset<ParallelTypeBitmap::kNumParallelTypes> kKIDBits{
+      (1u << getParallelTypeBitMapOffset(ParallelType::KIDx)) |
+      (1u << getParallelTypeBitMapOffset(ParallelType::KIDy)) |
+      (1u << getParallelTypeBitMapOffset(ParallelType::KIDz))};  
 
   static constexpr std::bitset<ParallelTypeBitmap::kNumParallelTypes> kCIDBits{
       (1u << getParallelTypeBitMapOffset(ParallelType::CIDx)) |

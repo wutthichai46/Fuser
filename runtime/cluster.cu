@@ -5,6 +5,14 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+// converting SMEM pointer to generic pointer, reverse op of toSmem
+__device__ inline void* fromSmem(unsigned smem_ptr_uint) {
+  void* raw_ptr;
+  asm("{ .reg .u64 smem_ptr_u64; cvt.u64.u32 smem_ptr_u64, %1; cvta.shared.u64 %0, smem_ptr_u64; }"
+      : "=l"(raw_ptr)
+      : "r"(smem_ptr_uint));
+  return raw_ptr;
+}
 
 #if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 900))
 
@@ -20,11 +28,22 @@ __device__ inline void cluster_sync() {
   cluster_arrive();
   cluster_wait();
 }
-// cluster.block_rank()
-__device__ inline uint32_t cluster_block_rank() {
-  uint32_t rank;
-  asm volatile("mov.u32 %0, %cluster_ctarank;\n" : "=r"(rank) :);
-  return rank;
+
+__device__ inline dim3 cluster_id_in_grid() {
+  uint32_t x, y, z;
+  asm volatile("mov.u32 %0, %clusterid.x;\n" : "=r"(x) :);
+  asm volatile("mov.u32 %0, %clusterid.y;\n" : "=r"(y) :);
+  asm volatile("mov.u32 %0, %clusterid.z;\n" : "=r"(z) :);
+  return {x, y, z};
+}
+
+// Returns the relative dim3 block rank local to the cluster.
+__device__ inline dim3 block_id_in_cluster() {
+  uint32_t x, y, z;
+  asm volatile("mov.u32 %0, %cluster_ctaid.x;\n" : "=r"(x) :);
+  asm volatile("mov.u32 %0, %cluster_ctaid.y;\n" : "=r"(y) :);
+  asm volatile("mov.u32 %0, %cluster_ctaid.z;\n" : "=r"(z) :);
+  return {x, y, z};
 }
 
 // cluster.dim_blocks()
@@ -119,22 +138,32 @@ __device__ void clusterReduce(
     }
     block_sync::sync<Aligned>();
   }
-
+  cluster_sync();
+  if(threadIdx.x == 0 && blockIdx.y==0){
+    printf("blockIdx.x=%d smem_offset=%d shared_mem[smem_offset]= %f\n", blockIdx.x, smem_offset, shared_mem[smem_offset]);
+  }  
   // block reduciton is done, start inter-block reduction
-  int cluster_id = cluster_block_rank(); // cluster.block_rank();
-
+  int bluster_id = block_id_in_cluster().x; // cluster.block_rank();
   int cluster_size = cluster_dim_blocks().x;
   int dsm_np2 = 1 << (31 - __clz(cluster_size));
   // reduce results to last {dsm_np2} blocks of the cluster
-  if (cluster_id - dsm_np2 >= 0) {
-    shared_mem[0] += get_data_from_other_cta(shared_mem, cluster_id - dsm_np2);
+  if (bluster_id - dsm_np2 >= 0) {
+    T other_val = get_data_from_other_cta(shared_mem, bluster_id - dsm_np2);
+    if(threadIdx.x == 0 && blockIdx.y==0){
+      printf("blockIdx.x=%d my_val= %f other_val= %f other_cta= %d\n", blockIdx.x, shared_mem[0], other_val, bluster_id - dsm_np2);
+    }     
+    shared_mem[0] += other_val;
   }
   cluster_sync();
 
   // reduce results to last {factor} blocks of the cluster
   for (int factor = dsm_np2 / 2; factor >= 1; factor >>= 1) {
-    if (cluster_size - cluster_id <= factor) {
-      shared_mem[0] += get_data_from_other_cta(shared_mem, cluster_id - factor);
+    if (cluster_size - bluster_id <= factor) {
+      T other_val = get_data_from_other_cta(shared_mem, bluster_id - factor);
+      if(threadIdx.x == 0 && blockIdx.y==0){
+        printf("blockIdx.x=%d my_val= %f other_val= %f other_cta= %d\n", blockIdx.x, shared_mem[0], other_val, bluster_id - factor);
+      }      
+      shared_mem[0] += other_val;      
     }
     cluster_sync();
   }
@@ -142,7 +171,7 @@ __device__ void clusterReduce(
   if (should_write && write_pred) {
     reduction_op(out, shared_mem[smem_offset]);
   }
-  block_sync::sync<Aligned>();
+  cluster_sync();
 }
 
 // Use the same pred for both reads and writes

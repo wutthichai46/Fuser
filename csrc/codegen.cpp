@@ -289,6 +289,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // blusterIdx represents block id in this cluster
     if (kernel_summary.has_thread_block_cluster) {
       indent() << "dim3 blusterIdx = block_id_in_cluster();\n";
+      indent() << "dim3 clusterDim = cluster_dim_blocks();\n";
     }
 
     if (kernel_summary.has_multiple_clusters) {

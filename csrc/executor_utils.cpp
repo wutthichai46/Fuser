@@ -95,7 +95,6 @@ std::string kernelPreamble() {
 
   // Communication classes
   ss << nvfuser_resources::block_reduction_cu;
-  ss << nvfuser_resources::cluster_cu;
   ss << nvfuser_resources::grid_reduction_cu;
   ss << nvfuser_resources::grid_broadcast_cu;
   ss << nvfuser_resources::broadcast_cu;
@@ -103,6 +102,7 @@ std::string kernelPreamble() {
   ss << nvfuser_resources::warp_cu;
   ss << nvfuser_resources::tensorcore_cu;
   ss << nvfuser_resources::memory_cu;
+  ss << nvfuser_resources::cluster_cu;
   ss << nvfuser_resources::fused_welford_helper_cu;
   ss << nvfuser_resources::fused_reduction_cu;
   ss << nvfuser_resources::fused_welford_impl_cu;

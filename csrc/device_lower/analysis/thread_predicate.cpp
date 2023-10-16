@@ -31,15 +31,17 @@ Val* getPredicatePerParallelType(
   if (pt_dim == nullptr || pt_dim->isOneInt()) {
     return GpuLower::current()->kernel()->trueVal();
   }
-  // When BID needs to be predicated, that means it's an output of a grid
-  // reduction and only the last block index in that dimension has the right
-  // value from the grid reduce.
-  if (isParallelTypeBlockDim(pt) && pred_info.limited_types.get(pt)) {
-    return SimplifyingIrBuilder::eqExpr(
-        NamedScalar::getParallelIndex(pt),
-        SimplifyingIrBuilder::subExpr(
-            NamedScalar::getParallelDim(pt),
-            GpuLower::current()->kernel()->oneVal()));
+  // When BID/KID needs to be predicated, that means it's an output of a
+  // grid/cluster reduction and only the last block index in that dimension has
+  // the right value from the grid/cluster reduce.
+  if (isParallelTypeBlockDim(pt) || isParallelTypeBlusterDim(pt)) {
+    if (pred_info.limited_types.get(pt)) {
+      return SimplifyingIrBuilder::eqExpr(
+          NamedScalar::getParallelIndex(pt),
+          SimplifyingIrBuilder::subExpr(
+              NamedScalar::getParallelDim(pt),
+              GpuLower::current()->kernel()->oneVal()));
+    }
   }
 
   const auto& broadcast_rd_indices_map = pred_info.broadcast_rd_indices_map;
@@ -393,8 +395,7 @@ class RedundantUseAnalysis : BackwardVisitor {
       //  consumer's redundant consumer info propagated
       //  backward from their consumer chains.
       ParallelTypeBitmap redundant_use;
-      redundant_use.setAllBID();
-      redundant_use.setAllTID();
+      redundant_use.setAll();
       for (auto expr : fusion_->unordered_uses(tv)) {
         if (!ir_utils::isTvOp(expr)) {
           // For non-TV op that takes a tensor as input, such as, GetMetaData
@@ -448,6 +449,8 @@ class RedundantUseAnalysis : BackwardVisitor {
     // Clear the propagated part of the original result
     if (propagate_bid) {
       use_map.setAllBID();
+      use_map.setAllKID();
+      use_map.setAllCID();
     }
     if (propagate_tid) {
       use_map.setAllTID();
@@ -462,6 +465,8 @@ class RedundantUseAnalysis : BackwardVisitor {
       //  need to be propagated.
       if (!propagate_bid) {
         expr_use_map.setAllBID();
+        expr_use_map.setAllKID();
+        expr_use_map.setAllCID();        
       }
       if (!propagate_tid) {
         expr_use_map.setAllTID();

@@ -14,6 +14,8 @@ constexpr std::bitset<ParallelTypeBitmap::kNumParallelTypes>
 constexpr std::bitset<ParallelTypeBitmap::kNumParallelTypes>
     ParallelTypeBitmap::kBIDBits;
 constexpr std::bitset<ParallelTypeBitmap::kNumParallelTypes>
+    ParallelTypeBitmap::kKIDBits;    
+constexpr std::bitset<ParallelTypeBitmap::kNumParallelTypes>
     ParallelTypeBitmap::kCIDBits;
 
 std::string ParallelTypeBitmap::toString() const {
