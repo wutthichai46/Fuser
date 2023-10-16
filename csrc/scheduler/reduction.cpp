@@ -380,7 +380,12 @@ std::shared_ptr<ReductionParams> innerReductionHeuristic(
   rparams->fastest_dim = true;
   rparams->cross_block_inner_reduction = true;
   rparams->block_dim_inner_reduction = ParallelType::TIDx;
-  rparams->cross_grid_inner_reduction = gridim > 1;
+  if (std::getenv("USE_CLUSTER")) {
+    rparams->cross_cluster_inner_reduction = gridim > 1 && gridim <= 8;
+    rparams->cross_grid_inner_reduction = gridim > 8;
+  } else {
+    rparams->cross_grid_inner_reduction = gridim > 1;
+  }
   rparams->multiple_reds_per_blk = bdimy > 1;
   bool pad_bdimx = bdimx > 16 &&
       bdimx * bdimy <
@@ -423,6 +428,10 @@ std::shared_ptr<ReductionParams> innerReductionHeuristic(
   int64_t gdimy = LaunchParams::UNINITIALIZED_VAL;
   int64_t gdimz = LaunchParams::UNINITIALIZED_VAL;
 
+  int64_t cdimx = LaunchParams::UNINITIALIZED_VAL;
+  int64_t cdimy = LaunchParams::UNINITIALIZED_VAL;
+  int64_t cdimz = LaunchParams::UNINITIALIZED_VAL;
+
   // If we have a cross grid case we want to have gdimy assigned to godim and
   // gdimx assigned to grdim. Otherwise it's helpful to pull godim into gdimx in
   // case it's larger than gdimy can hold, as not doing so can thrash the cache.
@@ -438,7 +447,14 @@ std::shared_ptr<ReductionParams> innerReductionHeuristic(
       gdimy = std::min(godim, scheduler_utils::y_grid_limit);
     }
 
-  } else {
+  } else if(rparams->cross_cluster_inner_reduction){
+    rparams->cluster_dim_inner_reduction = ParallelType::KIDx;
+    rparams->split_cluster_dim_inner_reduction = true;
+
+    cdimx = gridim;
+
+    rparams->grid_dim_iter_dom = ParallelType::BIDy;
+  }else {
     rparams->grid_dim_iter_dom = ParallelType::BIDx;
     if (gdimx > scheduler_utils::x_grid_limit) {
       rparams->split_grid_dim_iter_dom_outer = true;
@@ -464,7 +480,10 @@ std::shared_ptr<ReductionParams> innerReductionHeuristic(
       gdimz,
       bdimx,
       bdimy > 1 ? bdimy : LaunchParams::UNINITIALIZED_VAL,
-      bdimz > 1 ? bdimz : LaunchParams::UNINITIALIZED_VAL);
+      bdimz > 1 ? bdimz : LaunchParams::UNINITIALIZED_VAL,
+      cdimx > 1 ? cdimx : LaunchParams::UNINITIALIZED_VAL,
+      cdimy,
+      cdimz);
 
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
     debug() << "\n===== Reduction Stats ========\n"
@@ -475,7 +494,8 @@ std::shared_ptr<ReductionParams> innerReductionHeuristic(
             << "vectorize_factor: " << vectorize_factor << "\n"
             << "n_tensor_inputs: " << n_tensor_inputs << "\n"
             << "max_input_dtype_size: " << max_input_dtype_size << "\n"
-            << "block(" << bdimx << ", " << bdimy << ", " << bdimz << ")"
+            << "block(" << bdimx << ", " << bdimy << ", " << bdimz << ")\n"
+            << "cluster(" << cdimx << ", " << cdimy << ", " << cdimz << ")"
             << std::endl;
     debug() << rparams->toString() << std::endl;
   }

@@ -497,7 +497,7 @@ TEST_F(ThreadBlockClusterTest, OneClusterEachRow) {
 //   }
 // }
 
-TEST_F(NVFuserTest, TMP) {
+TEST_F(NVFuserTest, GridReduce) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -510,7 +510,7 @@ TEST_F(NVFuserTest, TMP) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto test = [&](int num_elements) {
-    at::Tensor t0 = at::ones({132*16, num_elements}, options);
+    at::Tensor t0 = at::ones({66, num_elements}, options);
     std::vector<c10::IValue> aten_inputs = {t0};
 
   FusionExecutorCache fec(std::move(fusion_ptr));
@@ -519,7 +519,7 @@ TEST_F(NVFuserTest, TMP) {
     testValidate(
         &fusion, outputs, aten_inputs, {t0.sum({-1})}, __LINE__, __FILE__);
   };
-  for (auto n : {8192}) {
+  for (auto n : {16384}) {
     test(n);
   }
 }

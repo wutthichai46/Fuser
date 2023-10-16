@@ -188,8 +188,18 @@ TensorView* scheduleReductionTV(
         reduction_tv->axis(inner_reduce_axis)
             ->parallelize(rparams.grid_dim_inner_reduction);
       }
+    } else if (rparams.cross_cluster_inner_reduction) {
+      if (rparams.split_cluster_dim_inner_reduction) {
+        outer_parallel(inner_reduce_axis, rparams.cluster_dim_inner_reduction);
+      } else {
+        reduction_tv->axis(inner_reduce_axis)
+            ->parallelize(rparams.cluster_dim_inner_reduction);
+      }
     }
   }
+  // T3_l[ iS2{i0}, rblusterIdx.x15{clusterDim.x}, rS16{( ceilDiv(( ceilDiv(( ceilDiv(( ceilDiv(i2, 4) ), blockDim.x) ), 1) ), clusterDim.x) )}, rUS14{1}, rthreadIdx.x12{blockDim.x}_p, rV10{4} ]
+  // T3_l[ iS2{i0}, rblockIdx.x15{gridDim.x}, rS16{( ceilDiv(( ceilDiv(( ceilDiv(( ceilDiv(i2, 4) ), blockDim.x) ), 1) ), gridDim.x) )}, rUS14{1}, rthreadIdx.x12{blockDim.x}_p, rV10{4} ]
+  std::cout << "after cross_grid_inner_reduction: " << reduction_tv->toString() << std::endl;
 
   // Outer reduction axis
   if (rparams.schedule_3D) {
@@ -286,6 +296,9 @@ TensorView* scheduleReductionTV(
     NVF_ERROR(vec_id_cur_pos != -1, "Vectorized ID not found");
     reduction_rf_tv->reorder(vec_reorder_map);
   }
+  // T3_l[ iblockIdx.y27{i0}, rblockIdx.x28{gridDim.x}, rthreadIdx.x29{blockDim.x}_p ]
+  std::cout << "after sortAndRFactor: " << reduction_tv->toString() << std::endl;
+  std::cout << "after sortAndRFactor reduction_rf_tv: " << reduction_rf_tv->toString() << std::endl;
 
   return reduction_rf_tv;
 }
@@ -670,6 +683,8 @@ TensorView* sortAndRFactor(TensorView* reference_tv) {
     reorder_map[old_i] = new_i;
   }
   reference_tv->reorder(reorder_map);
+
+    std::cout << "after reorder: " << reference_tv->toString() << std::endl;
 
   std::vector<int> rfactor_axes;
   std::vector<int> rfactor_axes_no_unswitch;

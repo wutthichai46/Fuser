@@ -40,6 +40,8 @@ class ReductionParams : public HeuristicParams {
 
   // Reduce across the block?
   bool cross_block_inner_reduction = false;
+  // Reduce across the cluster?
+  bool cross_cluster_inner_reduction = false;  
   // Reduce across the grid?
   bool cross_grid_inner_reduction = false;
   // Unrolling/Vectorization factor for inner reduction dimension
@@ -48,6 +50,7 @@ class ReductionParams : public HeuristicParams {
   bool vectorize_inner_reduction = false;
   // Split grid dim for iteration axis in case it's too large for cuda
   bool split_grid_dim_inner_reduction = false;
+  bool split_cluster_dim_inner_reduction = false;
   // Pad inner dimension to nearest warp
   bool pad_inner_reduction_to_warp = false;
   // Register persistent buffer size in inner dimension
@@ -57,6 +60,8 @@ class ReductionParams : public HeuristicParams {
   // !!WARNING!! Convenience method, this be unique based on non-parallel type
   // parameters, not used for equivalence/hashing.
   ParallelType block_dim_inner_reduction = ParallelType::Serial;
+  // Which cluster parallel dimension should be used for the inner reduction.
+  ParallelType cluster_dim_inner_reduction = ParallelType::Serial;  
   // Which grid parallel dimension should be used for the inner reduction.
   // !!WARNING!! Convenience method, this be unique based on non-parallel type
   // parameters, not used for equivalence/hashing.

@@ -236,7 +236,7 @@ class IterDomain : public Val {
 
   //! Return if this iter domain is either mapped to a block or grid dimension
   bool isThread() const {
-    return (isBlockDim() || isThreadDim() || isClusterDim());
+    return (isBlockDim() || isThreadDim() || isBlusterDim() || isClusterDim());
   }
 
   void parallelize(ParallelType t);
