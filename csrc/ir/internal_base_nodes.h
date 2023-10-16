@@ -229,7 +229,7 @@ class IterDomain : public Val {
     return isParallelTypeClusterDim(getParallelType());
   }
 
-  //! Return if this iter domain is mapped to a cluster dimension
+  //! Return if this iter domain is mapped to a block in cluster dimension
   bool isBlusterDim() const {
     return isParallelTypeBlusterDim(getParallelType());
   }
@@ -529,6 +529,7 @@ class TensorDomain : public Val {
   }
 
   bool hasBlockReduction() const;
+  bool hasClusterReduction() const;
   bool hasGridReduction() const;
   bool hasBlockBroadcast() const;
   bool hasGridBroadcast() const;

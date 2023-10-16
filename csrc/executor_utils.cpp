@@ -35,6 +35,7 @@
 #include <nvfuser_resources/block_sync_default.h>
 #include <nvfuser_resources/block_welford_outer.h>
 #include <nvfuser_resources/broadcast.h>
+#include <nvfuser_resources/cluster.h>
 #include <nvfuser_resources/complex_number.h>
 #include <nvfuser_resources/fp16_support.h>
 #include <nvfuser_resources/fused_reduction.h>
@@ -94,6 +95,7 @@ std::string kernelPreamble() {
 
   // Communication classes
   ss << nvfuser_resources::block_reduction_cu;
+  ss << nvfuser_resources::cluster_cu;
   ss << nvfuser_resources::grid_reduction_cu;
   ss << nvfuser_resources::grid_broadcast_cu;
   ss << nvfuser_resources::broadcast_cu;

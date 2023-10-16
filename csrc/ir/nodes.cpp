@@ -3316,6 +3316,7 @@ void TensorDomain::setContiguity(
   contiguity_ = contig;
 }
 
+// reduction using threads within a block
 bool TensorDomain::hasBlockReduction() const {
   return std::any_of(
       leaf_domain_.begin(), leaf_domain_.end(), [](IterDomain* id) {
@@ -3323,6 +3324,15 @@ bool TensorDomain::hasBlockReduction() const {
       });
 }
 
+// reduction using blocks within a cluster
+bool TensorDomain::hasClusterReduction() const {
+  return std::any_of(
+      leaf_domain_.begin(), leaf_domain_.end(), [](IterDomain* id) {
+        return id->isReduction() && id->isBlusterDim();
+      });
+}
+
+// reduction using blocks within a grid
 bool TensorDomain::hasGridReduction() const {
   return std::any_of(
       leaf_domain_.begin(), leaf_domain_.end(), [](IterDomain* id) {
