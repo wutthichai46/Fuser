@@ -31,17 +31,22 @@ Val* getPredicatePerParallelType(
   if (pt_dim == nullptr || pt_dim->isOneInt()) {
     return GpuLower::current()->kernel()->trueVal();
   }
-  // When BID/KID needs to be predicated, that means it's an output of a
-  // grid/cluster reduction and only the last block index in that dimension has
-  // the right value from the grid/cluster reduce.
-  if (isParallelTypeBlockDim(pt) || isParallelTypeBlusterDim(pt)) {
-    if (pred_info.limited_types.get(pt)) {
-      return SimplifyingIrBuilder::eqExpr(
-          NamedScalar::getParallelIndex(pt),
-          SimplifyingIrBuilder::subExpr(
-              NamedScalar::getParallelDim(pt),
-              GpuLower::current()->kernel()->oneVal()));
-    }
+  // When BID needs to be predicated, that means it's an output of a
+  // grid reduction and only the last block index in that dimension has
+  // the right value from the grid reduce.
+  if (isParallelTypeBlockDim(pt) && pred_info.limited_types.get(pt)) {
+    return SimplifyingIrBuilder::eqExpr(
+        NamedScalar::getParallelIndex(pt),
+        SimplifyingIrBuilder::subExpr(
+            NamedScalar::getParallelDim(pt),
+            GpuLower::current()->kernel()->oneVal()));
+  }
+
+  // Only first block has the right value from the cluster reduce.
+  if (isParallelTypeBlusterDim(pt) && pred_info.limited_types.get(pt)) {
+    return SimplifyingIrBuilder::eqExpr(
+        NamedScalar::getParallelIndex(pt),
+        GpuLower::current()->kernel()->zeroVal());
   }
 
   const auto& broadcast_rd_indices_map = pred_info.broadcast_rd_indices_map;
@@ -466,7 +471,7 @@ class RedundantUseAnalysis : BackwardVisitor {
       if (!propagate_bid) {
         expr_use_map.setAllBID();
         expr_use_map.setAllKID();
-        expr_use_map.setAllCID();        
+        expr_use_map.setAllCID();
       }
       if (!propagate_tid) {
         expr_use_map.setAllTID();

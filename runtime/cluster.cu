@@ -5,14 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-// converting SMEM pointer to generic pointer, reverse op of toSmem
-__device__ inline void* fromSmem(unsigned smem_ptr_uint) {
-  void* raw_ptr;
-  asm("{ .reg .u64 smem_ptr_u64; cvt.u64.u32 smem_ptr_u64, %1; cvta.shared.u64 %0, smem_ptr_u64; }"
-      : "=l"(raw_ptr)
-      : "r"(smem_ptr_uint));
-  return raw_ptr;
-}
+
 
 #if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 900))
 
@@ -65,19 +58,22 @@ cluster_map_shared_rank(uint32_t smemAddr, uint32_t rank) {
   return result;
 }
 
-// Maybe there is a ld/st instruction can achieve this without converting back
-// to generic pointer.
-template <typename T>
-__device__ inline T
-get_data_from_other_cta(T* my_smem_address, uint32_t other_cta_rank) {
-  // get SMEM pointer
-  uint32_t other_smem_address =
-      cluster_map_shared_rank(toSmem(my_smem_address), other_cta_rank);
-  // convert to generic pointer
-  T* generic_ptr = (T*)fromSmem(other_smem_address);
-  // return data
-  return *generic_ptr;
+template<typename T>
+__device__ inline T load_data_from_other_cta(T* my_smem_address, uint32_t rank);
+
+// Specialization for float
+template<>
+__device__ inline float load_data_from_other_cta<float>(float* my_smem_address, uint32_t rank) {
+    uint32_t other_smem_address =
+        cluster_map_shared_rank(toSmem(my_smem_address), rank);
+
+    float other_val;
+    asm volatile("ld.shared::cluster.f32 %0, [%1];\n"
+                 :"=f"(other_val)
+                 :"r"(other_smem_address));
+    return other_val;
 }
+
 
 template <
     bool X_REDUCE,
@@ -139,31 +135,23 @@ __device__ void clusterReduce(
     block_sync::sync<Aligned>();
   }
   cluster_sync();
-  if(threadIdx.x == 0 && blockIdx.y==0){
-    printf("blockIdx.x=%d smem_offset=%d shared_mem[smem_offset]= %f\n", blockIdx.x, smem_offset, shared_mem[smem_offset]);
-  }  
+
   // block reduciton is done, start inter-block reduction
   int bluster_id = block_id_in_cluster().x; // cluster.block_rank();
   int cluster_size = cluster_dim_blocks().x;
   int dsm_np2 = 1 << (31 - __clz(cluster_size));
-  // reduce results to last {dsm_np2} blocks of the cluster
-  if (bluster_id - dsm_np2 >= 0) {
-    T other_val = get_data_from_other_cta(shared_mem, bluster_id - dsm_np2);
-    if(threadIdx.x == 0 && blockIdx.y==0){
-      printf("blockIdx.x=%d my_val= %f other_val= %f other_cta= %d\n", blockIdx.x, shared_mem[0], other_val, bluster_id - dsm_np2);
-    }     
-    shared_mem[0] += other_val;
+  // reduce results to first {dsm_np2} blocks of the cluster
+  if (bluster_id < dsm_np2 && bluster_id + dsm_np2 < cluster_size ) {
+    T other_val = load_data_from_other_cta(shared_mem, bluster_id + dsm_np2);
+    reduction_op(shared_mem[smem_offset], other_val);
   }
   cluster_sync();
 
-  // reduce results to last {factor} blocks of the cluster
+  // reduce results to first {factor} blocks of the cluster
   for (int factor = dsm_np2 / 2; factor >= 1; factor >>= 1) {
-    if (cluster_size - bluster_id <= factor) {
-      T other_val = get_data_from_other_cta(shared_mem, bluster_id - factor);
-      if(threadIdx.x == 0 && blockIdx.y==0){
-        printf("blockIdx.x=%d my_val= %f other_val= %f other_cta= %d\n", blockIdx.x, shared_mem[0], other_val, bluster_id - factor);
-      }      
-      shared_mem[0] += other_val;      
+    if (bluster_id < factor) {
+      T other_val = load_data_from_other_cta(shared_mem, bluster_id + factor);
+      reduction_op(shared_mem[smem_offset], other_val);
     }
     cluster_sync();
   }

@@ -449,55 +449,55 @@ TEST_F(ThreadBlockClusterTest, OneClusterEachRow) {
   }
 }
 
-// TEST_F(NVFuserTest, TMP) {
-//   Fusion fusion;
-//   FusionGuard fg(&fusion);
+TEST_F(NVFuserTest, TMP1) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
 
-//   TensorView* tv0 = makeContigTensor(2);
-//   fusion.addInput(tv0);
-//   TensorView* tv2 = sum(tv0, {-1});
-//   TensorView* tv3 = set(tv2);
-//   fusion.addOutput(tv3);
+  TensorView* tv0 = makeContigTensor(2);
+  fusion.addInput(tv0);
+  TensorView* tv2 = sum(tv0, {-1});
+  TensorView* tv3 = set(tv2);
+  fusion.addOutput(tv3);
 
-//   // block reduction
-//   const int tidx = 32;
-//   tv2->split(-1, tidx);
+  // block reduction
+  const int tidx = 512;
+  tv2->split(-1, tidx);
 
-//   // cluster reduction
-//   const int cidx = 7;
-//   tv2->split(-2, cidx);
+  // cluster reduction
+  const int kidx = 5;
+  tv2->split(-2, kidx);
 
-//   // tv2: [i0, r0/tidx/cidx, cidx, tidx]
-//   auto ref = tv2->rFactor({1});
+  // tv2: [i0, r0/tidx/cidx, cidx, tidx]
+  auto ref = tv2->rFactor({1});
 
-//   // ref = [i0, r0/tidx/cidx, cidx, tidx]
-//   ref->axis(0)->parallelize(ParallelType::BIDy);
-//   ref->axis(1)->parallelize(ParallelType::Serial);
-//   ref->axis(2)->parallelize(ParallelType::CIDx);
-//   ref->axis(3)->parallelize(ParallelType::TIDx);
-//   scheduler_utils::parallelizeAllLike(ref);
-//   inlineMost();
+  // ref = [i0, r0/tidx/cidx, cidx, tidx]
+  ref->axis(0)->parallelize(ParallelType::BIDy);
+  ref->axis(1)->parallelize(ParallelType::Serial);
+  ref->axis(2)->parallelize(ParallelType::KIDx);
+  ref->axis(3)->parallelize(ParallelType::TIDx);
+  scheduler_utils::parallelizeAllLike(ref);
+  inlineMost();
 
-//   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
-//   auto test = [&](int num_elements) {
-//     at::Tensor t0 = at::ones({2, num_elements}, options);
-//     std::vector<c10::IValue> aten_inputs = {t0};
+  auto test = [&](int num_elements) {
+    at::Tensor t0 = at::ones({100, num_elements}, options);
+    std::vector<c10::IValue> aten_inputs = {t0};
 
-//     FusionExecutor fe;
-//     fe.compileFusion(&fusion, aten_inputs);
-//     std::vector<at::Tensor> outputs = fe.runFusion(aten_inputs);
-//     std::cout << outputs[0] << std::endl;
-//     testValidate(
-//         &fusion, outputs, aten_inputs, {t0.sum({-1})}, __LINE__, __FILE__);
-//   };
-//   // test with elements that both are and aren't multiples of 32.
-//   for (auto n : {32 * 7}) {
-//     test(n);
-//   }
-// }
+    FusionExecutor fe;
+    fe.compileFusion(&fusion, aten_inputs);
+    std::vector<at::Tensor> outputs = fe.runFusion(aten_inputs);
+    std::cout << outputs[0] << std::endl;
+    testValidate(
+        &fusion, outputs, aten_inputs, {t0.sum({-1})}, __LINE__, __FILE__);
+  };
+  // test with elements that both are and aren't multiples of 32.
+  for (auto n : {512*kidx}) {
+    test(n);
+  }
+}
 
-TEST_F(NVFuserTest, GridReduce) {
+TEST_F(NVFuserTest, TMP2) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -522,10 +522,10 @@ TEST_F(NVFuserTest, GridReduce) {
 
     FusionExecutorCache fec(std::move(fusion_ptr));
     auto outputs = fec.runFusionWithInputs(aten_inputs);
+    std::cout << outputs[0] << std::endl;
     testValidate(
         &fusion, outputs, aten_inputs, {t0.sum({-1})}, __LINE__, __FILE__);
   };
-
   // grid reduction: 6 us
   // cluster reduction: 5.7 us
   for (auto n : {49152}) {
@@ -533,7 +533,7 @@ TEST_F(NVFuserTest, GridReduce) {
   }
 }
 
-TEST_F(NVFuserTest, TMP) {
+TEST_F(NVFuserTest, TMP3) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -559,7 +559,7 @@ TEST_F(NVFuserTest, TMP) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto test = [&](int num_elements) {
-    at::Tensor t0 = at::ones({20, num_elements}, options);
+    at::Tensor t0 = at::ones({66, num_elements}, options);
     std::vector<c10::IValue> aten_inputs = {t0};
 
     FusionExecutorCache fec(std::move(fusion_ptr));
