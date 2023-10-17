@@ -449,50 +449,134 @@ TEST_F(ThreadBlockClusterTest, OneClusterEachRow) {
   }
 }
 
-TEST_F(NVFuserTest, TMP1) {
+TEST_F(NVFuserTest, ClusterReduce) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  TensorView* tv0 = makeContigTensor(2);
+  auto tv0 = makeContigTensor(2);
   fusion.addInput(tv0);
-  TensorView* tv2 = sum(tv0, {-1});
-  TensorView* tv3 = set(tv2);
+  auto tv1 = set(tv0);
+  auto tv2 = sum(tv1, {-1});
+  auto tv3 = set(tv2);
   fusion.addOutput(tv3);
+
+  // vectorization
+  const int vect = 4;
+  tv2->split(-1, vect);
 
   // block reduction
   const int tidx = 512;
-  tv2->split(-1, tidx);
+  tv2->split(-2, tidx);
 
   // cluster reduction
-  const int kidx = 5;
-  tv2->split(-2, kidx);
+  const int kidx = 8;
+  tv2->split(-3, kidx);
 
-  // tv2: [i0, r0/tidx/cidx, cidx, tidx]
-  auto ref = tv2->rFactor({1});
+  // tv2: [i0, r0/tidx/kidx/vect, kidx, tidx, vect]
+  auto ref = tv2->rFactor({1,4});
 
-  // ref = [i0, r0/tidx/cidx, cidx, tidx]
+  TransformPropagator propagator(ref);
+  MaxRootDomainInfoSpanningTree(ref).traverse(&propagator);
+
+  // ref = [i0, r0/tidx/kidx, kidx, tidx]
   ref->axis(0)->parallelize(ParallelType::BIDy);
   ref->axis(1)->parallelize(ParallelType::Serial);
-  ref->axis(2)->parallelize(ParallelType::KIDx);
+  if (std::getenv("USE_CLUSTER")) {
+    ref->axis(2)->parallelize(ParallelType::KIDx);
+  } else {
+    ref->axis(2)->parallelize(ParallelType::BIDx);
+  }
   ref->axis(3)->parallelize(ParallelType::TIDx);
   scheduler_utils::parallelizeAllLike(ref);
+
+  fusion.printMath();
+  tv1->axis(-1)->parallelize(ParallelType::Vectorize);
+
   inlineMost();
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto test = [&](int num_elements) {
-    at::Tensor t0 = at::ones({100, num_elements}, options);
+    at::Tensor t0 = at::ones({132 * kidx, num_elements}, options);
     std::vector<c10::IValue> aten_inputs = {t0};
 
     FusionExecutor fe;
     fe.compileFusion(&fusion, aten_inputs);
     std::vector<at::Tensor> outputs = fe.runFusion(aten_inputs);
-    std::cout << outputs[0] << std::endl;
     testValidate(
         &fusion, outputs, aten_inputs, {t0.sum({-1})}, __LINE__, __FILE__);
   };
-  // test with elements that both are and aren't multiples of 32.
-  for (auto n : {512*kidx}) {
+  // 0.055 ms for grid
+  // 0.122 ms for cluster
+  for (auto n : {vect * tidx * kidx}) {
+    test(n);
+  }
+}
+
+TEST_F(NVFuserTest, TMP1) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = sum(tv1, {-1});
+  auto tv3 = broadcast(tv2, {false,true});
+  auto tv4 = add(tv1,tv3);
+  auto tv5 = set(tv4);
+  fusion.addOutput(tv5);
+
+  // vectorization
+  const int vect = 4;
+  tv2->split(-1, vect);
+
+  // persistent batch
+  const int persistent_batch = 5;
+  tv2->split(-2, persistent_batch);
+
+  // block reduction
+  const int tidx = 512;
+  tv2->split(-3, tidx);
+
+  // // cluster reduction
+  const int kidx = 8;
+  // tv2->split(-3, kidx);
+
+  // tv2: [i0, r0/tidx/batch/vect, tidx, batch, vect]
+  auto ref = tv2->rFactor({-1,-2});
+
+  TransformPropagator propagator(ref);
+  MaxRootDomainInfoSpanningTree(ref).traverse(&propagator);
+
+  // ref = [i0, r0/tidx/batch/vect, tidx, batch, vect]
+  ref->axis(0)->parallelize(ParallelType::BIDy);
+  ref->axis(1)->parallelize(ParallelType::KIDx);
+  ref->axis(2)->parallelize(ParallelType::TIDx);
+  ref->axis(3)->parallelize(ParallelType::Serial);
+  ref->axis(4)->parallelize(ParallelType::Serial);
+  scheduler_utils::parallelizeAllLike(ref);
+
+  fusion.printMath();
+  tv1->axis(-1)->parallelize(ParallelType::Vectorize);
+  tv5->axis(-1)->parallelize(ParallelType::Vectorize);
+
+  inlineMost();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto test = [&](int num_elements) {
+    at::Tensor t0 = at::ones({132 * kidx, num_elements}, options);
+    std::vector<c10::IValue> aten_inputs = {t0};
+
+    FusionExecutor fe;
+    fe.compileFusion(&fusion, aten_inputs);
+    std::vector<at::Tensor> outputs = fe.runFusion(aten_inputs);
+    testValidate(
+        &fusion, outputs, aten_inputs, {t0.sum({-1})}, __LINE__, __FILE__);
+  };
+  // 0.055 ms for grid
+  // 0.122 ms for cluster
+  for (auto n : {vect * persistent_batch * tidx * kidx}) {
     test(n);
   }
 }
@@ -522,11 +606,10 @@ TEST_F(NVFuserTest, TMP2) {
 
     FusionExecutorCache fec(std::move(fusion_ptr));
     auto outputs = fec.runFusionWithInputs(aten_inputs);
-    std::cout << outputs[0] << std::endl;
     testValidate(
         &fusion, outputs, aten_inputs, {t0.sum({-1})}, __LINE__, __FILE__);
   };
-  // grid reduction: 6 us
+  // grid reduction: 7 us
   // cluster reduction: 5.7 us
   for (auto n : {49152}) {
     test(n);
@@ -570,8 +653,6 @@ TEST_F(NVFuserTest, TMP3) {
     auto t4 = t0 + 0.0;
     auto t5 = t1 + t2 + t3 + t4;
     auto t6 = t5.sum({-1});
-    std::cout << t6 << std::endl;
-    std::cout << outputs[0] << std::endl;
     testValidate(&fusion, outputs, aten_inputs, {t6}, __LINE__, __FILE__);
   };
   // grid reduction: 16 us

@@ -1786,12 +1786,14 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     // Set up CUlaunchAttribute for cooperative and cluster launch
     std::vector<CUlaunchAttribute> launch_attrs;
     if (kernel()->summary().has_cooperative_grid_reduction) {
+      std::cout << "has_cooperative_grid_reduction" << std::endl;
       CUlaunchAttribute attr;
       attr.id = CU_LAUNCH_ATTRIBUTE_COOPERATIVE;
       attr.value.cooperative = 1;
       launch_attrs.push_back(attr);
     }
     if (kernel()->summary().has_thread_block_cluster) {
+      std::cout << "has_thread_block_cluster" << std::endl;
       CUlaunchAttribute attr;
       attr.id = CU_LAUNCH_ATTRIBUTE_CLUSTER_DIMENSION;
       attr.value.clusterDim.x = (int)launch_params_.cdimx();

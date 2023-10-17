@@ -159,7 +159,6 @@ __device__ void clusterReduce(
   if (should_write && write_pred) {
     reduction_op(out, shared_mem[smem_offset]);
   }
-  cluster_sync();
 }
 
 // Use the same pred for both reads and writes
