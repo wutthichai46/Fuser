@@ -136,6 +136,7 @@ __device__ void clusterReduce(
   }
   cluster_sync();
 
+  #if 0
   // block reduciton is done, start inter-block reduction
   int bluster_id = block_id_in_cluster().x; // cluster.block_rank();
   int cluster_size = cluster_dim_blocks().x;
@@ -159,6 +160,22 @@ __device__ void clusterReduce(
   if (should_write && write_pred) {
     reduction_op(out, shared_mem[smem_offset]);
   }
+
+  #else
+
+    int bluster_id = block_id_in_cluster().x; // cluster.block_rank();
+    if (bluster_id == 0 && should_write && write_pred) {
+      int cluster_size = cluster_dim_blocks().x;
+      T ans = shared_mem[smem_offset];
+      for (int factor = cluster_size - 1; factor >= 1; factor--) {
+        T other_val = load_data_from_other_cta(shared_mem, factor);
+        reduction_op(ans, other_val);
+      }
+      reduction_op(out, ans);
+    }
+    cluster_sync();
+    
+  #endif
 }
 
 // Use the same pred for both reads and writes

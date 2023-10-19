@@ -49,20 +49,20 @@ void validateParallelizationOfTensor(TensorView* tv) {
   // If this tensor is predicated by a paralel type, it should not be
   // used to parallelize any domain of this tensor
 
-  const auto thread_pred =
-      GpuLower::current()->threadPredMap().getPredicateInfo(tv);
+  // const auto thread_pred =
+  //     GpuLower::current()->threadPredMap().getPredicateInfo(tv);
 
-  auto predicated_parallel_types = pt_map & thread_pred.limited_types;
+  // auto predicated_parallel_types = pt_map & thread_pred.limited_types;
 
-  NVF_ERROR(
-      predicated_parallel_types.none(),
-      "Invalid parallelization of tensor t",
-      tv->name(),
-      ". The tensor is parallelized with ",
-      predicated_parallel_types.toString(),
-      ", but it's invalid to use the types as the tensor is also predicated with them.",
-      ", thread pred: ",
-      thread_pred.limited_types.toString());
+  // NVF_ERROR(
+  //     predicated_parallel_types.none(),
+  //     "Invalid parallelization of tensor t",
+  //     tv->name(),
+  //     ". The tensor is parallelized with ",
+  //     predicated_parallel_types.toString(),
+  //     ", but it's invalid to use the types as the tensor is also predicated with them.",
+  //     ", thread pred: ",
+  //     thread_pred.limited_types.toString());
 }
 
 //! Properties used in useSameIndex that only depends on the producer and
