@@ -153,7 +153,7 @@ TEST_F(NVFuserTest, ClusterReduce) {
   tv2->split(-2, tidx);
 
   // cluster reduction
-  const int kidx = 8;
+  const int kidx = 2;
   tv2->split(-3, kidx);
 
   // tv2: [i0, r0/tidx/kidx/vect, kidx, tidx, vect]
@@ -181,7 +181,7 @@ TEST_F(NVFuserTest, ClusterReduce) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto test = [&](int num_elements) {
-    at::Tensor t0 = at::ones({132 * kidx, num_elements}, options);
+    at::Tensor t0 = at::ones({132 / kidx, num_elements}, options);
     std::vector<c10::IValue> aten_inputs = {t0};
 
     FusionExecutor fe;
