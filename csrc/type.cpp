@@ -680,6 +680,8 @@ static const char* rng_op_type2string(RNGOpType t) {
 
 static const char* parallel_type2string(ParallelType t) {
   switch (t) {
+    case ParallelType::DIDx:
+      return "deviceIdx.x";
     case ParallelType::BIDz:
       return "blockIdx.z";
     case ParallelType::BIDy:
@@ -1343,6 +1345,10 @@ bool isParallelTypeClusterDim(ParallelType ptype) {
 bool isParallelTypeBlusterDim(ParallelType ptype) {
   return ptype == ParallelType::KIDx || ptype == ParallelType::KIDy ||
       ptype == ParallelType::KIDz;
+}
+
+bool isParallelTypeDeviceDim(ParallelType ptype) {
+  return ptype == ParallelType::DIDx;
 }
 
 bool isParallelTypeThread(ParallelType ptype) {

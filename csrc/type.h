@@ -645,6 +645,7 @@ bool isLogicalOp(const BinaryOpType bopt);
 enum class TernaryOpType { Clamp, Lerp, Threshold, Where };
 
 enum class ParallelType {
+  DIDx,
   BIDz,
   BIDy,
   BIDx,
@@ -927,6 +928,8 @@ bool isParallelTypeBlusterDim(ParallelType);
 bool isParallelTypeClusterDim(ParallelType);
 // Returns if parallel type is a grid or block parallelization dimension
 bool isParallelTypeThread(ParallelType);
+// Returns if parallel type is DIDx
+bool isParallelTypeDeviceDim(ParallelType);
 
 bool isParallelTypeVectorize(ParallelType);
 
