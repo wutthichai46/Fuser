@@ -82,7 +82,7 @@ template <
     bool Aligned,
     typename T,
     typename Func>
-__device__ void clusterReduce(
+__device__ void blockClusterReduce(
     T& out,
     const T& inp_val,
     Func reduction_op,
@@ -178,7 +178,10 @@ __device__ void clusterReduce(
   #endif
 }
 
-// Use the same pred for both reads and writes
+template <typename T>
+__device__ __forceinline__ T shfl_xor(T var, int laneMask, int width = 32) {
+  return __shfl_xor_sync(0xffffffff, var, laneMask, width);
+}
 template <
     bool X_REDUCE,
     bool Y_REDUCE,
@@ -191,16 +194,62 @@ __device__ void clusterReduce(
     const T& inp_val,
     Func reduction_op,
     T* shared_mem,
-    bool read_write_pred,
+    bool read_pred,
+    bool write_pred,
     T init_val) {
-  clusterReduce<X_REDUCE, Y_REDUCE, Z_REDUCE, Aligned, T, Func>(
-      out,
-      inp_val,
-      reduction_op,
-      shared_mem,
-      read_write_pred,
-      read_write_pred,
-      init_val);
+
+  // If this thread will output a final result
+  bool should_write =
+  index_utils::maskedIsZero<X_REDUCE, Y_REDUCE, Z_REDUCE>(threadIdx);
+
+  // reduce to tmp and save to shared_mem[0] so other cta in cluster can access it.
+  constexpr int WARP_SIZE = 32;
+  T reduce_val = read_pred ? inp_val : init_val;
+  for (int i = 16; i >= 1; i /= 2) {
+    reduction_op(reduce_val, shfl_xor(reduce_val, i, WARP_SIZE));
+  }
+  // Reduce across warp if needed
+  if (blockDim.x > WARP_SIZE) {
+    unsigned int warp_idx = threadIdx.x / WARP_SIZE;
+    unsigned int lane_idx = threadIdx.x % WARP_SIZE;
+    bool is_warp_head = lane_idx == 0;
+    unsigned int num_of_warps = blockDim.x / WARP_SIZE;
+    block_sync::sync<Aligned>();
+    if (is_warp_head) {
+      shared_mem[warp_idx] = reduce_val;
+    }
+    block_sync::sync<Aligned>();
+
+    if (warp_idx == 0) {
+      assert(num_of_warps <= 32);
+      reduce_val = lane_idx < num_of_warps ? shared_mem[lane_idx]
+                                           : init_val;
+      for (int i = 16; i >= 1; i /= 2) {
+        reduction_op(reduce_val, shfl_xor(reduce_val, i, 32));
+      }
+      if(is_warp_head){
+        shared_mem[0] = reduce_val;
+      }
+    }
+  }else{
+    shared_mem[0] = reduce_val;
+  }
+  // block reduction is done.
+  cluster_sync();
+    
+  // first block reduce other blocks, serial reduction is faster since cluster size is less than 8 and cluster_sync is not required.
+  if (block_id_in_cluster().x == 0 && should_write && write_pred) {
+    T ans = shared_mem[0];
+    for (int factor = cluster_dim_blocks().x - 1; factor >= 1; factor--) {
+      T other_val = load_data_from_other_cta(shared_mem, factor);
+      reduction_op(ans, other_val);
+    }
+    reduction_op(out, ans);
+  }
+
+  // all done.
+  cluster_sync();
 }
+
 
 #endif

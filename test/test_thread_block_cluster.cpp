@@ -134,54 +134,53 @@ TEST_F(ThreadBlockClusterTest, OneClusterEachRow) {
 }
 
 TEST_F(NVFuserTest, ClusterReduce) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
+  auto test = [](const int batch, const int kidx) {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
 
-  auto tv0 = makeContigTensor(2);
-  fusion.addInput(tv0);
-  auto tv1 = set(tv0);
-  auto tv2 = sum(tv1, {-1});
-  auto tv3 = set(tv2);
-  fusion.addOutput(tv3);
+    auto tv0 = makeContigTensor(2);
+    fusion.addInput(tv0);
+    auto tv1 = set(tv0);
+    auto tv2 = sum(tv1, {-1});
+    auto tv3 = set(tv2);
+    fusion.addOutput(tv3);
 
-  // vectorization
-  const int vect = 4;
-  tv2->split(-1, vect);
+    // vectorization
+    const int vect = 4;
+    tv2->split(-1, vect);
 
-  // block reduction
-  const int tidx = 512;
-  tv2->split(-2, tidx);
+    // block reduction
+    const int tidx = 512;
+    tv2->split(-2, tidx);
 
-  // cluster reduction
-  const int kidx = 2;
-  tv2->split(-3, kidx);
+    // cluster reduction
+    tv2->split(-3, kidx);
 
-  // tv2: [i0, r0/tidx/kidx/vect, kidx, tidx, vect]
-  auto ref = tv2->rFactor({1, 4});
+    // tv2: [i0, r0/tidx/kidx/vect, kidx, tidx, vect]
+    auto ref = tv2->rFactor({1, 4});
 
-  TransformPropagator propagator(ref);
-  MaxRootDomainInfoSpanningTree(ref).traverse(&propagator);
+    TransformPropagator propagator(ref);
+    MaxRootDomainInfoSpanningTree(ref).traverse(&propagator);
 
-  // ref = [i0, r0/tidx/kidx, kidx, tidx]
-  ref->axis(0)->parallelize(ParallelType::BIDy);
-  ref->axis(1)->parallelize(ParallelType::Serial);
-  if (std::getenv("USE_CLUSTER")) {
-    ref->axis(2)->parallelize(ParallelType::KIDx);
-  } else {
-    ref->axis(2)->parallelize(ParallelType::BIDx);
-  }
-  ref->axis(3)->parallelize(ParallelType::TIDx);
-  scheduler_utils::parallelizeAllLike(ref);
+    // ref = [i0, r0/tidx/kidx, kidx, tidx]
+    ref->axis(0)->parallelize(ParallelType::BIDy);
+    ref->axis(1)->parallelize(ParallelType::Serial);
+    if (std::getenv("USE_CLUSTER")) {
+      ref->axis(2)->parallelize(ParallelType::KIDx);
+    } else {
+      ref->axis(2)->parallelize(ParallelType::BIDx);
+    }
+    ref->axis(3)->parallelize(ParallelType::TIDx);
+    scheduler_utils::parallelizeAllLike(ref);
 
-  fusion.printMath();
-  tv1->axis(-1)->parallelize(ParallelType::Vectorize);
+    fusion.printMath();
+    tv1->axis(-1)->parallelize(ParallelType::Vectorize);
 
-  inlineMost();
+    inlineMost();
 
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
-  auto test = [&](int num_elements) {
-    at::Tensor t0 = at::ones({132 / kidx, num_elements}, options);
+    at::Tensor t0 = at::ones({batch, vect * tidx * kidx}, options);
     std::vector<c10::IValue> aten_inputs = {t0};
 
     FusionExecutor fe;
@@ -190,13 +189,32 @@ TEST_F(NVFuserTest, ClusterReduce) {
     testValidate(
         &fusion, outputs, aten_inputs, {t0.sum({-1})}, __LINE__, __FILE__);
   };
-  // 0.055 ms for grid
-  // 0.108 ms for cluster
-  for (auto n : {vect * tidx * kidx}) {
-    test(n);
+
+// root@cl1-2433:/opt/pytorch/nvfuser/build# USE_CLUSTER=1 nsys nvprof --print-gpu-trace ./nvfuser_tests --gtest_filter=NVFuserTest.ClusterReduce |grep CudaCodeGen::kernel
+// WARNING: nvfuser_tests and any of its children processes will be profiled.
+//   821224650          13888     718     1   132     1   512     1     1       32         0.000         0.002                                                     NVIDIA H100 80GB HBM3 (0)    1     7  CudaCodeGen::kernel1(CudaCodeGen::Tensor<float, (int)2, (int)2>, CudaCodeGen::Tensor<float, (int)1,…
+//   986357874          14656     989     2    66     1   512     1     1       30         0.000         0.002                                                     NVIDIA H100 80GB HBM3 (0)    1     7  CudaCodeGen::kernel2(CudaCodeGen::Tensor<float, (int)2, (int)2>, CudaCodeGen::Tensor<float, (int)1,…
+//  1100884334          16768    1260     3    44     1   512     1     1       30         0.000         0.002                                                     NVIDIA H100 80GB HBM3 (0)    1     7  CudaCodeGen::kernel3(CudaCodeGen::Tensor<float, (int)2, (int)2>, CudaCodeGen::Tensor<float, (int)1,…
+//  1216059233          16511    1531     4    33     1   512     1     1       30         0.000         0.002                                                     NVIDIA H100 80GB HBM3 (0)    1     7  CudaCodeGen::kernel4(CudaCodeGen::Tensor<float, (int)2, (int)2>, CudaCodeGen::Tensor<float, (int)1,…
+//  1331000599          15359    1801     5    26     1   512     1     1       30         0.000         0.002                                                     NVIDIA H100 80GB HBM3 (0)    1     7  CudaCodeGen::kernel5(CudaCodeGen::Tensor<float, (int)2, (int)2>, CudaCodeGen::Tensor<float, (int)1,…
+//  1444927869          16544    2071     6    22     1   512     1     1       30         0.000         0.002                                                     NVIDIA H100 80GB HBM3 (0)    1     7  CudaCodeGen::kernel6(CudaCodeGen::Tensor<float, (int)2, (int)2>, CudaCodeGen::Tensor<float, (int)1,…
+//  1558494634          17407    2341     7    18     1   512     1     1       30         0.000         0.002                                                     NVIDIA H100 80GB HBM3 (0)    1     7  CudaCodeGen::kernel7(CudaCodeGen::Tensor<float, (int)2, (int)2>, CudaCodeGen::Tensor<float, (int)1,…
+//  1671471103          16992    2611     8    16     1   512     1     1       30         0.000         0.002                                                     NVIDIA H100 80GB HBM3 (0)    1     7  CudaCodeGen::kernel8(CudaCodeGen::Tensor<float, (int)2, (int)2>, CudaCodeGen::Tensor<float, (int)1,…
+
+// root@cl1-2433:/opt/pytorch/nvfuser/build# nsys nvprof --print-gpu-trace ./nvfuser_tests --gtest_filter=NVFuserTest.ClusterReduce |grep CudaCodeGen::kernel
+//   832488242          19999     742     1   132     1   512     1     1       32         0.000         0.002                                                     NVIDIA H100 80GB HBM3 (0)    1     7  CudaCodeGen::kernel1(CudaCodeGen::Tensor<float, (int)2, (int)2>, CudaCodeGen::Tensor<float, (int)1,…
+//  1011221515          20160    1037     2    66     1   512     1     1       32         0.000         0.002                                                     NVIDIA H100 80GB HBM3 (0)    1     7  CudaCodeGen::kernel2(CudaCodeGen::Tensor<float, (int)2, (int)2>, CudaCodeGen::Tensor<float, (int)1,…
+//  1140703199          20576    1332     3    44     1   512     1     1       32         0.000         0.002                                                     NVIDIA H100 80GB HBM3 (0)    1     7  CudaCodeGen::kernel3(CudaCodeGen::Tensor<float, (int)2, (int)2>, CudaCodeGen::Tensor<float, (int)1,…
+//  1268623373          20032    1627     4    33     1   512     1     1       32         0.000         0.002                                                     NVIDIA H100 80GB HBM3 (0)    1     7  CudaCodeGen::kernel4(CudaCodeGen::Tensor<float, (int)2, (int)2>, CudaCodeGen::Tensor<float, (int)1,…
+//  1397951813          20287    1921     5    26     1   512     1     1       32         0.000         0.002                                                     NVIDIA H100 80GB HBM3 (0)    1     7  CudaCodeGen::kernel5(CudaCodeGen::Tensor<float, (int)2, (int)2>, CudaCodeGen::Tensor<float, (int)1,…
+//  1527068927          20288    2215     6    22     1   512     1     1       32         0.000         0.002                                                     NVIDIA H100 80GB HBM3 (0)    1     7  CudaCodeGen::kernel6(CudaCodeGen::Tensor<float, (int)2, (int)2>, CudaCodeGen::Tensor<float, (int)1,…
+//  1656523700          22016    2509     7    18     1   512     1     1       32         0.000         0.002                                                     NVIDIA H100 80GB HBM3 (0)    1     7  CudaCodeGen::kernel7(CudaCodeGen::Tensor<float, (int)2, (int)2>, CudaCodeGen::Tensor<float, (int)1,…
+//  1785358868          19839    2803     8    16     1   512     1     1       32         0.000         0.002                                                     NVIDIA H100 80GB HBM3 (0)    1     7  CudaCodeGen::kernel8(CudaCodeGen::Tensor<float, (int)2, (int)2>, CudaCodeGen::Tensor<float, (int)1,…
+  for (auto kidx = 1; kidx <= 8; kidx++) {
+    int batch = 132 / kidx;
+    test(batch, kidx);
   }
 }
-
 
 TEST_F(NVFuserTest, GridNormalization) {
   Fusion fusion;
@@ -250,7 +268,7 @@ TEST_F(NVFuserTest, GridNormalization) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto test = [&](int num_elements) {
-    at::Tensor t0 = at::ones({132/kidx, num_elements}, options);
+    at::Tensor t0 = at::ones({132 / kidx, num_elements}, options);
     std::vector<c10::IValue> aten_inputs = {t0};
 
     FusionExecutor fe;
@@ -259,8 +277,7 @@ TEST_F(NVFuserTest, GridNormalization) {
     auto t1 = t0.sum({-1});
     auto t2 = t1.unsqueeze(-1);
     auto t3 = t0 + t2;
-    testValidate(
-        &fusion, outputs, aten_inputs, {t3}, __LINE__, __FILE__);
+    testValidate(&fusion, outputs, aten_inputs, {t3}, __LINE__, __FILE__);
   };
   // 0.055 ms for grid
   // 0.122 ms for cluster
@@ -330,8 +347,7 @@ TEST_F(NVFuserTest, TMP1) {
     auto t1 = t0.sum({-1});
     auto t2 = t1.unsqueeze(-1);
     auto t3 = t0 + t2;
-    testValidate(
-        &fusion, outputs, aten_inputs, {t3}, __LINE__, __FILE__);
+    testValidate(&fusion, outputs, aten_inputs, {t3}, __LINE__, __FILE__);
   };
   // 0.055 ms for grid
   // 0.122 ms for cluster
