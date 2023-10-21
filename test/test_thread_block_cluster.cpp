@@ -190,59 +190,51 @@ TEST_F(NVFuserTest, ClusterReduce) {
         &fusion, outputs, aten_inputs, {t0.sum({-1})}, __LINE__, __FILE__);
   };
 
-// root@cl1-2433:/opt/pytorch/nvfuser/build# USE_CLUSTER=1 nsys nvprof --print-gpu-trace ./nvfuser_tests --gtest_filter=NVFuserTest.ClusterReduce |grep CudaCodeGen::kernel
-// WARNING: nvfuser_tests and any of its children processes will be profiled.
-//   821224650          13888     718     1   132     1   512     1     1       32         0.000         0.002                                                     NVIDIA H100 80GB HBM3 (0)    1     7  CudaCodeGen::kernel1(CudaCodeGen::Tensor<float, (int)2, (int)2>, CudaCodeGen::Tensor<float, (int)1,…
-//   986357874          14656     989     2    66     1   512     1     1       30         0.000         0.002                                                     NVIDIA H100 80GB HBM3 (0)    1     7  CudaCodeGen::kernel2(CudaCodeGen::Tensor<float, (int)2, (int)2>, CudaCodeGen::Tensor<float, (int)1,…
-//  1100884334          16768    1260     3    44     1   512     1     1       30         0.000         0.002                                                     NVIDIA H100 80GB HBM3 (0)    1     7  CudaCodeGen::kernel3(CudaCodeGen::Tensor<float, (int)2, (int)2>, CudaCodeGen::Tensor<float, (int)1,…
-//  1216059233          16511    1531     4    33     1   512     1     1       30         0.000         0.002                                                     NVIDIA H100 80GB HBM3 (0)    1     7  CudaCodeGen::kernel4(CudaCodeGen::Tensor<float, (int)2, (int)2>, CudaCodeGen::Tensor<float, (int)1,…
-//  1331000599          15359    1801     5    26     1   512     1     1       30         0.000         0.002                                                     NVIDIA H100 80GB HBM3 (0)    1     7  CudaCodeGen::kernel5(CudaCodeGen::Tensor<float, (int)2, (int)2>, CudaCodeGen::Tensor<float, (int)1,…
-//  1444927869          16544    2071     6    22     1   512     1     1       30         0.000         0.002                                                     NVIDIA H100 80GB HBM3 (0)    1     7  CudaCodeGen::kernel6(CudaCodeGen::Tensor<float, (int)2, (int)2>, CudaCodeGen::Tensor<float, (int)1,…
-//  1558494634          17407    2341     7    18     1   512     1     1       30         0.000         0.002                                                     NVIDIA H100 80GB HBM3 (0)    1     7  CudaCodeGen::kernel7(CudaCodeGen::Tensor<float, (int)2, (int)2>, CudaCodeGen::Tensor<float, (int)1,…
-//  1671471103          16992    2611     8    16     1   512     1     1       30         0.000         0.002                                                     NVIDIA H100 80GB HBM3 (0)    1     7  CudaCodeGen::kernel8(CudaCodeGen::Tensor<float, (int)2, (int)2>, CudaCodeGen::Tensor<float, (int)1,…
-
-// root@cl1-2433:/opt/pytorch/nvfuser/build# nsys nvprof --print-gpu-trace ./nvfuser_tests --gtest_filter=NVFuserTest.ClusterReduce |grep CudaCodeGen::kernel
-//   832488242          19999     742     1   132     1   512     1     1       32         0.000         0.002                                                     NVIDIA H100 80GB HBM3 (0)    1     7  CudaCodeGen::kernel1(CudaCodeGen::Tensor<float, (int)2, (int)2>, CudaCodeGen::Tensor<float, (int)1,…
-//  1011221515          20160    1037     2    66     1   512     1     1       32         0.000         0.002                                                     NVIDIA H100 80GB HBM3 (0)    1     7  CudaCodeGen::kernel2(CudaCodeGen::Tensor<float, (int)2, (int)2>, CudaCodeGen::Tensor<float, (int)1,…
-//  1140703199          20576    1332     3    44     1   512     1     1       32         0.000         0.002                                                     NVIDIA H100 80GB HBM3 (0)    1     7  CudaCodeGen::kernel3(CudaCodeGen::Tensor<float, (int)2, (int)2>, CudaCodeGen::Tensor<float, (int)1,…
-//  1268623373          20032    1627     4    33     1   512     1     1       32         0.000         0.002                                                     NVIDIA H100 80GB HBM3 (0)    1     7  CudaCodeGen::kernel4(CudaCodeGen::Tensor<float, (int)2, (int)2>, CudaCodeGen::Tensor<float, (int)1,…
-//  1397951813          20287    1921     5    26     1   512     1     1       32         0.000         0.002                                                     NVIDIA H100 80GB HBM3 (0)    1     7  CudaCodeGen::kernel5(CudaCodeGen::Tensor<float, (int)2, (int)2>, CudaCodeGen::Tensor<float, (int)1,…
-//  1527068927          20288    2215     6    22     1   512     1     1       32         0.000         0.002                                                     NVIDIA H100 80GB HBM3 (0)    1     7  CudaCodeGen::kernel6(CudaCodeGen::Tensor<float, (int)2, (int)2>, CudaCodeGen::Tensor<float, (int)1,…
-//  1656523700          22016    2509     7    18     1   512     1     1       32         0.000         0.002                                                     NVIDIA H100 80GB HBM3 (0)    1     7  CudaCodeGen::kernel7(CudaCodeGen::Tensor<float, (int)2, (int)2>, CudaCodeGen::Tensor<float, (int)1,…
-//  1785358868          19839    2803     8    16     1   512     1     1       32         0.000         0.002                                                     NVIDIA H100 80GB HBM3 (0)    1     7  CudaCodeGen::kernel8(CudaCodeGen::Tensor<float, (int)2, (int)2>, CudaCodeGen::Tensor<float, (int)1,…
   // small batch, one wave
-  // for (auto kidx = 1; kidx <= 8; kidx++) {
-  //   int batch = 132 / kidx;
-  //   test(batch, kidx);
-  // }
+  for (auto kidx = 1; kidx <= 8; kidx++) {
+    int batch = 132 / kidx;
+    test(batch, kidx);
+  }
 
   // large batch
-//   root@cl1-2433:/opt/pytorch/nvfuser/build# USE_CLUSTER=1 nsys nvprof --print-gpu-trace ./nvfuser_tests --gtest_filter=NVFuserTest.ClusterReduce |grep CudaCodeGen::kernel
-// WARNING: nvfuser_tests and any of its children processes will be profiled.
-
-//   849856814         768563     718       1  32768     1   512     1     1       32         0.000         0.002                                                     NVIDIA H100 80GB HBM3 (0)    1     7  CudaCodeGen::kernel1(CudaCodeGen::Tensor<float, (int)2, (int)2>, CudaCodeGen::Tensor<float, (int)1,…
-//  1014469036        1703461     992       2  32768     1   512     1     1       30         0.000         0.002                                                     NVIDIA H100 80GB HBM3 (0)    1     7  CudaCodeGen::kernel2(CudaCodeGen::Tensor<float, (int)2, (int)2>, CudaCodeGen::Tensor<float, (int)1,…
-//  1130612057        2921265    1266       3  32768     1   512     1     1       30         0.000         0.002                                                     NVIDIA H100 80GB HBM3 (0)    1     7  CudaCodeGen::kernel3(CudaCodeGen::Tensor<float, (int)2, (int)2>, CudaCodeGen::Tensor<float, (int)1,…
-//  1248453131        3951872    1540       4  32768     1   512     1     1       30         0.000         0.002                                                     NVIDIA H100 80GB HBM3 (0)    1     7  CudaCodeGen::kernel4(CudaCodeGen::Tensor<float, (int)2, (int)2>, CudaCodeGen::Tensor<float, (int)1,…
-//  1367506377        4958256    1813       5  32768     1   512     1     1       30         0.000         0.002                                                     NVIDIA H100 80GB HBM3 (0)    1     7  CudaCodeGen::kernel5(CudaCodeGen::Tensor<float, (int)2, (int)2>, CudaCodeGen::Tensor<float, (int)1,…
-//  1488466664        6167037    2086       6  32768     1   512     1     1       30         0.000         0.002                                                     NVIDIA H100 80GB HBM3 (0)    1     7  CudaCodeGen::kernel6(CudaCodeGen::Tensor<float, (int)2, (int)2>, CudaCodeGen::Tensor<float, (int)1,…
-//  1610100829        7522374    2359       7  32768     1   512     1     1       30         0.000         0.002                                                     NVIDIA H100 80GB HBM3 (0)    1     7  CudaCodeGen::kernel7(CudaCodeGen::Tensor<float, (int)2, (int)2>, CudaCodeGen::Tensor<float, (int)1,…
-//  1732680642        8621205 
-
-// root@cl1-2433:/opt/pytorch/nvfuser/build#  nsys nvprof --print-gpu-trace ./nvfuser_tests --gtest_filter=NVFuserTest.ClusterReduce |grep CudaCodeGen::kernel
-// WARNING: nvfuser_tests and any of its children processes will be profiled.
-
-//   801228764        1351211     742       1  32768     1   512     1     1       32         0.000         0.002                                                     NVIDIA H100 80GB HBM3 (0)    1     7  CudaCodeGen::kernel1(CudaCodeGen::Tensor<float, (int)2, (int)2>, CudaCodeGen::Tensor<float, (int)1,…
-//   980259125        2299802    1040       2  32768     1   512     1     1       32         0.000         0.002                                                     NVIDIA H100 80GB HBM3 (0)    1     7  CudaCodeGen::kernel2(CudaCodeGen::Tensor<float, (int)2, (int)2>, CudaCodeGen::Tensor<float, (int)1,…
-//  1112114214        3296971    1338       3  32768     1   512     1     1       32         0.000         0.002                                                     NVIDIA H100 80GB HBM3 (0)    1     7  CudaCodeGen::kernel3(CudaCodeGen::Tensor<float, (int)2, (int)2>, CudaCodeGen::Tensor<float, (int)1,…
-//  1244472079        4176508    1636       4  32768     1   512     1     1       32         0.000         0.002                                                     NVIDIA H100 80GB HBM3 (0)    1     7  CudaCodeGen::kernel4(CudaCodeGen::Tensor<float, (int)2, (int)2>, CudaCodeGen::Tensor<float, (int)1,…
-//  1379560492        5278731    1933       5  32768     1   512     1     1       32         0.000         0.002                                                     NVIDIA H100 80GB HBM3 (0)    1     7  CudaCodeGen::kernel5(CudaCodeGen::Tensor<float, (int)2, (int)2>, CudaCodeGen::Tensor<float, (int)1,…
-//  1515186464        6148285    2230       6  32768     1   512     1     1       32         0.000         0.002                                                     NVIDIA H100 80GB HBM3 (0)    1     7  CudaCodeGen::kernel6(CudaCodeGen::Tensor<float, (int)2, (int)2>, CudaCodeGen::Tensor<float, (int)1,…
-//  1652035041        7210060    2527       7  32768     1   512     1     1       32         0.000         0.002                                                     NVIDIA H100 80GB HBM3 (0)    1     7  CudaCodeGen::kernel7(CudaCodeGen::Tensor<float, (int)2, (int)2>, CudaCodeGen::Tensor<float, (int)1,…
-//  1790507975        7837922    2824       8  32768     1   512     1     1       32         0.000         0.002
   for (auto kidx = 1; kidx <= 8; kidx++) {
-    int batch = 32*1024;
+    int batch = 32 * 1024;
     test(batch, kidx);
+  }
+}
+
+TEST_F(NVFuserTest, ClusterReduceMagicSchedule) {
+  auto test = [&](int iter, int num_elements) {
+    std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+    Fusion& fusion = *fusion_ptr.get();
+    FusionGuard fg(&fusion);
+    auto dtype = DataType::Half;
+    auto tv0 = makeContigTensor(2, dtype);
+    fusion.addInput(tv0);
+    if (dtype == DataType::Half) {
+      tv0 = castOp(DataType::Float, tv0);
+    }
+    auto tv1 = sum(tv0, {-1});
+    if (dtype == DataType::Half) {
+      tv1 = castOp(DataType::Float, tv1);
+    }
+    fusion.addOutput(tv1);
+
+    auto options = at::TensorOptions()
+                       .dtype(data_type_to_aten(dtype))
+                       .device(at::kCUDA, 0);
+    at::Tensor t0 = at::ones({iter, num_elements}, options);
+    std::vector<c10::IValue> aten_inputs = {t0};
+
+    FusionExecutorCache fec(std::move(fusion_ptr));
+    auto outputs = fec.runFusionWithInputs(aten_inputs);
+    testValidate(
+        &fusion, outputs, aten_inputs, {t0.sum({-1})}, __LINE__, __FILE__);
+  };
+  for (int iter = 33; iter <= 132; iter += 33) {
+    for (int redu = 96; redu <= 128; redu += 32) {
+      test(iter, redu * 1024);
+    }
   }
 }
 
@@ -386,40 +378,7 @@ TEST_F(NVFuserTest, TMP1) {
   }
 }
 
-TEST_F(NVFuserTest, TMP2) {
-  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
-  auto dtype = DataType::Float;
-  auto tv0 = makeContigTensor(2, dtype);
-  fusion.addInput(tv0);
-  if (dtype == DataType::Half) {
-    tv0 = castOp(DataType::Float, tv0);
-  }
-  auto tv1 = sum(tv0, {-1});
-  if (dtype == DataType::Half) {
-    tv1 = castOp(DataType::Float, tv1);
-  }
-  fusion.addOutput(tv1);
 
-  auto options =
-      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-
-  auto test = [&](int num_elements) {
-    at::Tensor t0 = at::ones({66, num_elements}, options);
-    std::vector<c10::IValue> aten_inputs = {t0};
-
-    FusionExecutorCache fec(std::move(fusion_ptr));
-    auto outputs = fec.runFusionWithInputs(aten_inputs);
-    testValidate(
-        &fusion, outputs, aten_inputs, {t0.sum({-1})}, __LINE__, __FILE__);
-  };
-  // grid reduction: 7 us
-  // cluster reduction: 5.7 us
-  for (auto n : {49152}) {
-    test(n);
-  }
-}
 
 TEST_F(NVFuserTest, TMP3) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();

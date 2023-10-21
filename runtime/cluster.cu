@@ -236,17 +236,44 @@ __device__ void clusterReduce(
   }
   // block reduction is done.
   cluster_sync();
-    
-  // first block reduce other blocks, serial reduction is faster since cluster size is less than 8 and cluster_sync is not required.
-  if (block_id_in_cluster().x == 0 && should_write && write_pred) {
-    T ans = shared_mem[0];
-    for (int factor = cluster_dim_blocks().x - 1; factor >= 1; factor--) {
-      T other_val = load_data_from_other_cta(shared_mem, factor);
-      reduction_op(ans, other_val);
-    }
-    reduction_op(out, ans);
-  }
 
+  #if 10
+    // first block reduce other blocks, serial reduction is faster since cluster size is less than 8 and cluster_sync is not required.
+    if (block_id_in_cluster().x == 0 && should_write && write_pred) {
+      T ans = shared_mem[0];
+      for (int factor = cluster_dim_blocks().x - 1; factor >= 1; factor--) {
+        T other_val = load_data_from_other_cta(shared_mem, factor);
+        reduction_op(ans, other_val);
+      }
+      reduction_op(out, ans);
+    }
+  #else
+    int bluster_id = block_id_in_cluster().x;
+    int cluster_size = cluster_dim_blocks().x;
+    int dsm_np2 = 1 << (31 - __clz(cluster_size));
+    // reduce results to first {dsm_np2} blocks of the cluster
+    if (bluster_id < dsm_np2 && bluster_id + dsm_np2 < cluster_size ) {
+      T other_val = load_data_from_other_cta(shared_mem, bluster_id + dsm_np2);
+      reduction_op(shared_mem[0], other_val);
+    }
+    cluster_sync();
+
+    // reduce results to first 2 blocks of the cluster
+    for (int factor = dsm_np2 / 2; factor > 1; factor >>= 1) {
+      if (bluster_id < factor) {
+        T other_val = load_data_from_other_cta(shared_mem, bluster_id + factor);
+        reduction_op(shared_mem[0], other_val);
+      }
+      cluster_sync();
+    }
+    // first block reduce data in block-0 and block-1
+    if(bluster_id==0){
+      T other_val = load_data_from_other_cta(shared_mem, bluster_id + 1);
+      T local_val = shared_mem[0];
+      reduction_op(local_val, other_val);
+      reduction_op(out, local_val);
+    }
+  #endif
   // all done.
   cluster_sync();
 }

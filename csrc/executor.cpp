@@ -1793,7 +1793,6 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       launch_attrs.push_back(attr);
     }
     if (kernel()->summary().has_thread_block_cluster) {
-      std::cout << "has_thread_block_cluster" << std::endl;
       CUlaunchAttribute attr;
       attr.id = CU_LAUNCH_ATTRIBUTE_CLUSTER_DIMENSION;
       attr.value.clusterDim.x = (int)launch_params_.cdimx();

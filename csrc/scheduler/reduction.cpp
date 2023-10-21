@@ -448,6 +448,7 @@ std::shared_ptr<ReductionParams> innerReductionHeuristic(
     }
 
   } else if(rparams->cross_cluster_inner_reduction){
+    std::cout << "--- using cross_cluster_inner_reduction ---" << std::endl;
     rparams->cluster_dim_inner_reduction = ParallelType::KIDx;
     rparams->split_cluster_dim_inner_reduction = true;
 
