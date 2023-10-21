@@ -23,9 +23,9 @@ namespace nvfuser {
 
 class SchedulerRuntimeInfo;
 class HeuristicSummary;
-
 class InnerPersistentKernelScheduler : public SchedulerEntry {
  public:
+  static constexpr int64_t max_blocks_per_cluster = 4;
   explicit InnerPersistentKernelScheduler(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
@@ -39,7 +39,7 @@ class InnerPersistentKernelScheduler : public SchedulerEntry {
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache = nullptr);
-
+   
  private:
   void computeHeuristics(
       Fusion* fusion,

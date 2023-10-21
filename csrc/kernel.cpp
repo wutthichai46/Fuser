@@ -97,8 +97,12 @@ class KernelIrScanner : private IrVisitor {
     summary_.has_block_reductions =
         summary_.has_block_reductions || domain->hasBlockReduction();
 
+    // Do we have any reductions?
+    summary_.has_cluster_reductions =
+        summary_.has_cluster_reductions || domain->hasClusterReduction();
+
     // Update the largest smem data type
-    if (domain->hasBlockReduction() || domain->hasGridReduction() ||
+    if (domain->hasBlockReduction() || domain->hasClusterReduction() || domain->hasGridReduction() ||
         tv->getMemoryType() == MemoryType::Shared) {
       const auto data_type = tv->dtype();
       const size_t type_size = dataTypeSize(data_type, index_type_);
@@ -181,6 +185,9 @@ class KernelIrScanner : private IrVisitor {
     // Do we have block broadcasts?
     summary_.has_block_broadcasts =
         summary_.has_block_broadcasts || parallel_types.hasTID();
+    // Do we have block broadcasts?
+    summary_.has_cluster_broadcasts =
+        summary_.has_cluster_broadcasts || parallel_types.hasKID();        
     // Do we have grid broadcasts?
     summary_.has_grid_broadcasts =
         summary_.has_grid_broadcasts || parallel_types.hasBID();

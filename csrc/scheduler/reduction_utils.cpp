@@ -139,7 +139,9 @@ TensorView* scheduleReductionTV(
     if (rparams.cross_grid_inner_reduction) {
       outer_parallel(outer_i++, rparams.grid_dim_inner_reduction);
     }
-
+    else if (rparams.cross_cluster_inner_reduction) {
+      outer_parallel(outer_i++, rparams.cluster_dim_inner_reduction);
+    }
     reduction_tv->split(
         outer_i++, rparams.batches_per_block_inner_reduction, false);
 

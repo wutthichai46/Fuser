@@ -68,6 +68,11 @@ std::pair<int64_t, int64_t> getPersistentBufferSize(
   int64_t available_persistent_buffer_size =
       scheduler_utils::register_file_size;
 
+  if (std::getenv("USE_CLUSTER")) {
+    available_persistent_buffer_size *=
+        InnerPersistentKernelScheduler::max_blocks_per_cluster;
+  }
+
   // Check available shared memory
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
   const int64_t max_shared_memory_size =
@@ -254,23 +259,36 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
     const int64_t max_input_dtype_size,
     const int64_t max_persistent_buffer_size,
     const size_t vectorize_factor) {
+  int64_t blocks_per_reduction = 1l;
   if (max_persistent_buffer_size > scheduler_utils::register_file_size) {
-    // use shared memory for persistent buffer
-    return innerPersistentHeuristicSharedMemory(
-        total_reduction_numel,
-        total_iteration_numel,
-        inner_most_dimension_numel,
-        (int64_t)n_tensor_inputs,
-        (int64_t)max_input_dtype_size,
-        max_persistent_buffer_size,
-        vectorize_factor);
+    if (std::getenv("USE_CLUSTER")) {
+      blocks_per_reduction = ceilDiv(
+          max_persistent_buffer_size, scheduler_utils::register_file_size);
+
+    } else {
+      // use shared memory for persistent buffer
+      return innerPersistentHeuristicSharedMemory(
+          total_reduction_numel,
+          total_iteration_numel,
+          inner_most_dimension_numel,
+          (int64_t)n_tensor_inputs,
+          (int64_t)max_input_dtype_size,
+          max_persistent_buffer_size,
+          vectorize_factor);
+    }
   }
+  int64_t reduction_num_per_block =
+      total_reduction_numel / blocks_per_reduction;
+  int64_t innermost_per_block =
+      inner_most_dimension_numel / blocks_per_reduction;
+  int64_t persistent_buffer_per_block =
+      max_persistent_buffer_size / blocks_per_reduction;
 
   // Set some targets for parallelization
-  const int64_t n_elems = total_reduction_numel * total_iteration_numel;
+  const int64_t n_elems = reduction_num_per_block * total_iteration_numel;
 
   const int64_t outer_reduction_numel =
-      total_reduction_numel / inner_most_dimension_numel;
+      reduction_num_per_block / innermost_per_block;
 
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
   // WARNING: At some point we may want to generate heuristics for another
@@ -309,7 +327,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   // set that to minimum number we want to reduce per thread.
   const int64_t warp_size_based_on_l1 = std::min(
       ceilDiv(
-          total_reduction_numel,
+          reduction_num_per_block,
           scheduler_utils::safeDiv(
               l1_cache,
               n_tensor_inputs * max_input_dtype_size * active_threads)),
@@ -337,7 +355,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   // max_threads_in_block is the cap on a thread block, the minimum is based on
   // warp_size
   int64_t max_threads_in_block = std::max(
-      warp_size, ceilDiv(total_reduction_numel, min_target_iterations));
+      warp_size, ceilDiv(reduction_num_per_block, min_target_iterations));
 
   // If we have one warp per block, check if that's enough to saturate the SMs
   target_blocks = ceilDiv(n_elems, warp_size);
@@ -405,7 +423,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   // SMs.
   const int64_t max_multi_reduction_factor = std::min(
       scheduler_utils::safeDiv(
-          scheduler_utils::register_file_size, max_persistent_buffer_size),
+          scheduler_utils::register_file_size, persistent_buffer_per_block),
       ceilDiv(total_iteration_numel, device_multiprocessor_count));
   // To get to target threads:
   // Prioritize
@@ -438,13 +456,13 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   // Grab what we can out of reduction domain, but don't go over a warp size yet
   bdimx = std::min(
       std::max(
-          ceilDiv(inner_most_dimension_numel, inner_reduction_unroll_factor),
+          ceilDiv(innermost_per_block, inner_reduction_unroll_factor),
           (int64_t)warp_size),
       max_threads_in_block);
 
   // If we're not just barely covering the dimension, round to a more friendly
   // number
-  if (bdimx * inner_reduction_unroll_factor != inner_most_dimension_numel) {
+  if (bdimx * inner_reduction_unroll_factor != innermost_per_block) {
     bdimx = bdimx > warp_size ? bdimx - bdimx % warp_size
                               : scheduler_utils::lastPow2(bdimx);
 
@@ -478,7 +496,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
 
   // start from small block size to minimize expensive inter-threads reduction
   const int64_t threads_after_vectorize =
-      inner_most_dimension_numel / inner_reduction_unroll_factor;
+      innermost_per_block / inner_reduction_unroll_factor;
 
   // Test min_threads_per_block using 3 values:
   // (1) One warp, so we can use single warp reduction and sync.
@@ -505,8 +523,8 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
 
   // Set size of persistent per thread buffer on inner reduction buffer
   // if too large, will be reduced later to reduce register usage
-  int64_t batches_per_block_inner_reduction = ceilDiv(
-      inner_most_dimension_numel, bdimx * inner_reduction_unroll_factor);
+  int64_t batches_per_block_inner_reduction =
+      ceilDiv(innermost_per_block, bdimx * inner_reduction_unroll_factor);
 
   // Attempt to put some unrolling into the outer reduction if inner hasn't
   // taken the max unrolling
@@ -523,14 +541,14 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   while (!vectorize && inner_reduction_unroll_factor < max_unroll &&
          batches_per_block_inner_reduction >= 2) {
     inner_reduction_unroll_factor *= 2;
-    batches_per_block_inner_reduction = scheduler_utils::roundUpPow2Or8(ceilDiv(
-        inner_most_dimension_numel, bdimx * inner_reduction_unroll_factor));
+    batches_per_block_inner_reduction = scheduler_utils::roundUpPow2Or8(
+        ceilDiv(innermost_per_block, bdimx * inner_reduction_unroll_factor));
   }
 
   // Set size of persistent per thread buffer on outer reduction buffer
   int64_t batches_per_block_outer_reduction =
       scheduler_utils::roundUpPow2Or8(ceilDiv(
-          ceilDiv(total_reduction_numel, inner_most_dimension_numel),
+          ceilDiv(reduction_num_per_block, innermost_per_block),
           bdimz * outer_reduction_unroll_factor));
 
   // Prefer putting iterations into unrolling over having a very large
@@ -545,7 +563,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   // Adjust bdimx based on batches_per_block and unroll factor set as they could
   // have moved a bit since they're the free variables, not the buffers
   bdimx = ceilDiv(
-      inner_most_dimension_numel,
+      innermost_per_block,
       inner_reduction_unroll_factor * batches_per_block_inner_reduction);
   bdimz = ceilDiv(
       outer_reduction_numel,
@@ -566,8 +584,8 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
     if (batches_per_block_inner_reduction >
         batches_per_block_inner_reduction_max) {
       bdimx *= 2;
-      batches_per_block_inner_reduction = ceilDiv(
-          inner_most_dimension_numel, inner_reduction_unroll_factor * bdimx);
+      batches_per_block_inner_reduction =
+          ceilDiv(innermost_per_block, inner_reduction_unroll_factor * bdimx);
       continue;
     }
 
@@ -635,11 +653,11 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
       batches_per_block_inner_reduction > 1) {
     // Estimate register per thread based on buffer size, since inner reduction
     // dim is fully parallelized, the buffer size of each element equals the
-    // total buffer size divide by inner_most_dimension_numel. Each thread will
+    // total buffer size divide by innermost_per_block. Each thread will
     // hold batches_per_block_inner_reduction * inner_reduction_unroll_factor
     // elements.
-    const int64_t persistent_buffer_size = max_persistent_buffer_size /
-        inner_most_dimension_numel * batches_per_block_inner_reduction *
+    const int64_t persistent_buffer_size = persistent_buffer_per_block /
+        innermost_per_block * batches_per_block_inner_reduction *
         inner_reduction_unroll_factor;
 
     // persistent_buffer_size = 4*2, 8*2, 32*2, 64*2, 128*2
@@ -707,6 +725,9 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   int64_t gdimx = LaunchParams::UNINITIALIZED_VAL;
   int64_t gdimy = LaunchParams::UNINITIALIZED_VAL;
   int64_t gdimz = LaunchParams::UNINITIALIZED_VAL;
+  int64_t cdimx = LaunchParams::UNINITIALIZED_VAL;
+  int64_t cdimy = LaunchParams::UNINITIALIZED_VAL;
+  int64_t cdimz = LaunchParams::UNINITIALIZED_VAL;
 
   auto rparams = std::make_shared<ReductionParams>();
   rparams->cparams.maxrregcount = (int)nvrtc_register_per_thread;
@@ -744,7 +765,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   }
 
   // Outer reduction domain
-  rparams->schedule_3D = total_reduction_numel != inner_most_dimension_numel;
+  rparams->schedule_3D = reduction_num_per_block != innermost_per_block;
   if (rparams->schedule_3D) {
     rparams->batches_per_block_outer_reduction =
         batches_per_block_outer_reduction;
@@ -753,26 +774,47 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
     rparams->unroll_factor_outer_reduction = outer_reduction_unroll_factor;
   }
 
+  // cluster reduction
+  if (blocks_per_reduction > 1) {
+    std::cout << "--- using cross_cluster_inner_reduction ---" << std::endl;
+    cdimx = blocks_per_reduction;
+    rparams->cross_cluster_inner_reduction = true;
+    rparams->cluster_dim_inner_reduction = ParallelType::KIDx;
+    rparams->split_cluster_dim_inner_reduction = true;
+    if (godim > 1) {
+      rparams->grid_dim_iter_dom = ParallelType::BIDy;
+      if (godim > scheduler_utils::y_grid_limit) {
+        rparams->split_grid_dim_iter_dom_outer = true;
+        gdimy = scheduler_utils::y_grid_limit;
+      }
+    }
+  }
+
   rparams->lparams = LaunchParams(
       gdimx,
       gdimy,
       gdimz,
       LaunchParams::UNINITIALIZED_VAL,
       bdimy,
-      LaunchParams::UNINITIALIZED_VAL);
+      LaunchParams::UNINITIALIZED_VAL,
+      cdimx,
+      cdimy,
+      cdimz);
 
   rparams->tag = "Inner Persistent Heuristic.\n";
 
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
     debug() << "\n===== Reduction Stats ========\n"
             << "total_reduction_numel: " << total_reduction_numel << "\n"
+            << "reduction_num_per_block: " << reduction_num_per_block << "\n"
+            << "blocks_per_reduction: " << blocks_per_reduction << "\n"
             << "total_iteration_numel: " << total_iteration_numel << "\n"
             << "inner_most_dimension_numel: " << inner_most_dimension_numel
             << "\n"
             << "vectorize_factor: " << vectorize_factor << "\n"
             << "n_tensor_inputs: " << n_tensor_inputs << "\n"
             << "max_input_dtype_size: " << max_input_dtype_size << "\n"
-            << "max_persistent_buffer_size: " << max_persistent_buffer_size
+            << "persistent_buffer_per_block: " << persistent_buffer_per_block
             << "\n"
             << "max_multi_reduction_factor: " << max_multi_reduction_factor
             << "\n"

@@ -1150,8 +1150,15 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     NVF_ERROR(stmt->predicate() != nullptr && stmt->predicate()->hasValue());
     func_args.arg(genInline(stmt->predicate()));
 
-    indent() << genCall("broadcast::blockBroadcast", template_args, func_args)
-             << ";\n";
+    std::cout << "parallel_types.hasKID(): " << parallel_types.hasKID() << std::endl;
+
+    std::string func_name;
+    if (parallel_types.hasKID()) {
+      func_name = "clusterBroadcast";
+    } else {
+      func_name = "broadcast::blockBroadcast";
+    }
+    indent() << genCall(func_name, template_args, func_args) << ";\n";
   }
 
   void genSerialReduction(
@@ -1275,8 +1282,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
     func_args.arg(genCall(data_type, genInline(init)));
 
-    indent() << genCall("clusterReduce", template_args, func_args)
-             << ";\n";
+    indent() << genCall("clusterReduce", template_args, func_args) << ";\n";
   }
 
   void handle(const ReductionOp* rop) final {
@@ -1295,7 +1301,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         !has_grid_reduce,
         "ReductionOp does not support block parallelization. GridReductionOp must be used. ",
         rop->toString());
-
 
     if (has_cluster_reduce) {
       genClusterReduction(

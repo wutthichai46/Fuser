@@ -204,7 +204,7 @@ TEST_F(NVFuserTest, ClusterReduce) {
 }
 
 TEST_F(NVFuserTest, ClusterReduceMagicSchedule) {
-  auto test = [&](int iter, int num_elements) {
+  auto test = [&](int batch, int num_elements) {
     std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
     Fusion& fusion = *fusion_ptr.get();
     FusionGuard fg(&fusion);
@@ -223,7 +223,7 @@ TEST_F(NVFuserTest, ClusterReduceMagicSchedule) {
     auto options = at::TensorOptions()
                        .dtype(data_type_to_aten(dtype))
                        .device(at::kCUDA, 0);
-    at::Tensor t0 = at::ones({iter, num_elements}, options);
+    at::Tensor t0 = at::ones({batch, num_elements}, options);
     std::vector<c10::IValue> aten_inputs = {t0};
 
     FusionExecutorCache fec(std::move(fusion_ptr));
@@ -231,9 +231,9 @@ TEST_F(NVFuserTest, ClusterReduceMagicSchedule) {
     testValidate(
         &fusion, outputs, aten_inputs, {t0.sum({-1})}, __LINE__, __FILE__);
   };
-  for (int iter = 33; iter <= 132; iter += 33) {
+  for (int batch = 33; batch <= 132; batch += 33) {
     for (int redu = 96; redu <= 128; redu += 32) {
-      test(iter, redu * 1024);
+      test(batch, redu * 1024);
     }
   }
 }
@@ -275,7 +275,11 @@ TEST_F(NVFuserTest, GridNormalization) {
 
   // ref = [i0, r0/tidx/batch/vect, tidx, batch, vect]
   ref->axis(0)->parallelize(ParallelType::BIDy);
-  ref->axis(1)->parallelize(ParallelType::BIDx);
+  if (std::getenv("USE_CLUSTER")) {
+    ref->axis(1)->parallelize(ParallelType::KIDx);
+  } else {
+    ref->axis(1)->parallelize(ParallelType::BIDx);
+  }
   ref->axis(2)->parallelize(ParallelType::TIDx);
   ref->axis(3)->parallelize(ParallelType::Serial);
   ref->axis(4)->parallelize(ParallelType::Serial);
@@ -305,6 +309,46 @@ TEST_F(NVFuserTest, GridNormalization) {
   // 0.122 ms for cluster
   for (auto n : {vect * persistent_batch * tidx * kidx}) {
     test(n);
+  }
+}
+
+TEST_F(NVFuserTest, TMP) {
+  auto test = [&](int batch, int num_elements) {
+    std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+    Fusion& fusion = *fusion_ptr.get();
+    FusionGuard fg(&fusion);
+    auto dtype = DataType::Float;
+
+    auto tv0 = makeContigTensor(2);
+    fusion.addInput(tv0);
+    if (dtype == DataType::Half) {
+      tv0 = castOp(DataType::Float, tv0);
+    }
+    auto tv1 = set(tv0);
+    auto tv2 = sum(tv1, {-1});
+    auto tv3 = broadcast(tv2, {false, true});
+    auto tv4 = add(tv1, tv3);
+    auto tv5 = set(tv4);
+    if (dtype == DataType::Half) {
+      tv5 = castOp(DataType::Half, tv5);
+    }
+    fusion.addOutput(tv5);
+
+    auto options = at::TensorOptions()
+                       .dtype(data_type_to_aten(dtype))
+                       .device(at::kCUDA, 0);
+    at::Tensor t0 = at::ones({batch, num_elements}, options);
+    std::vector<c10::IValue> aten_inputs = {t0};
+
+    FusionExecutorCache fec(std::move(fusion_ptr));
+    auto outputs = fec.runFusionWithInputs(aten_inputs);
+    auto t2 = t0.sum({-1}).unsqueeze({-1}).add(t0);
+    testValidate(&fusion, outputs, aten_inputs, {t2}, __LINE__, __FILE__);
+  };
+  for (int batch = 66; batch <= 66; batch += 33) {
+    for (int redu = 56; redu <= 56; redu += 32) {
+      test(batch, redu * 1024);
+    }
   }
 }
 
@@ -377,8 +421,6 @@ TEST_F(NVFuserTest, TMP1) {
     test(n);
   }
 }
-
-
 
 TEST_F(NVFuserTest, TMP3) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();

@@ -54,6 +54,9 @@ struct KernelSummary {
   //! Do we have any block reductions?
   bool has_block_reductions = false;
 
+  //! Do we have any block reductions?
+  bool has_cluster_reductions = false;
+
   //! Number of static grid reductions
   bool has_grid_reductions = false;
 
@@ -63,6 +66,9 @@ struct KernelSummary {
 
   //! Do we have any block broadcasts?
   bool has_block_broadcasts = false;
+
+  //! Do we have any cluster broadcasts?
+  bool has_cluster_broadcasts = false;  
 
   //! Do we have any grid broadcasts?
   bool has_grid_broadcasts = false;

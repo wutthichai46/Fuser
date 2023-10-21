@@ -852,7 +852,7 @@ ParallelTypeBitmap ThreadPredicateMap::getParallelBroadcastDomains(
             id)) {
       continue;
     }
-    if (id->isBlockDim() || (!output_smem && id->isThreadDim())) {
+    if (id->isBlockDim() || id->isBlusterDim() || (!output_smem && id->isThreadDim())) {
       parallel_broadcast.set(id->getParallelType());
     }
   }

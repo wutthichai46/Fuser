@@ -278,5 +278,32 @@ __device__ void clusterReduce(
   cluster_sync();
 }
 
+template <bool X_THREAD, bool Y_THREAD, bool Z_THREAD, bool Aligned, typename T>
+__device__ void clusterBroadcast(
+    T& out,
+    const T& inp_val,
+    T* shared_mem,
+    bool read_write_pred) {
+  // const bool has_valid_data = (!X_THREAD || threadIdx.x == 0) &&
+  //     (!Y_THREAD || threadIdx.y == 0) && (!Z_THREAD || threadIdx.z == 0);
+
+  // const auto shared_offset =
+  //     index_utils::maskedOffset<!X_THREAD, !Y_THREAD, !Z_THREAD>(
+  //         threadIdx, blockDim);
+  constexpr int shared_offset = 0;
+  // write to smem
+  if (block_id_in_cluster().x == 0 && threadIdx.x == 0) {
+    shared_mem[shared_offset] = inp_val;
+  }
+  cluster_sync();
+
+  // broadcast from smem
+  if(block_id_in_cluster().x == 0){
+    out = shared_mem[shared_offset];
+  }else{
+    out = load_data_from_other_cta(shared_mem, 0);
+  }
+  cluster_sync();
+}
 
 #endif
