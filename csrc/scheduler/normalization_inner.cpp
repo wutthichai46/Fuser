@@ -251,6 +251,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristicSharedMemory(
 
   return rparams;
 }
+
 std::shared_ptr<ReductionParams> innerPersistentHeuristic(
     const int64_t total_reduction_numel,
     const int64_t total_iteration_numel,
@@ -788,18 +789,27 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
         gdimy = scheduler_utils::y_grid_limit;
       }
     }
+    rparams->lparams = LaunchParams(
+        gdimx,
+        gdimy,
+        gdimz,
+        padded_bdimx,
+        bdimy,
+        LaunchParams::UNINITIALIZED_VAL,
+        cdimy,
+        cdimz);
+  } else {
+    rparams->lparams = LaunchParams(
+        gdimx,
+        gdimy,
+        gdimz,
+        LaunchParams::UNINITIALIZED_VAL,
+        bdimy,
+        LaunchParams::UNINITIALIZED_VAL,
+        cdimx,
+        cdimy,
+        cdimz);
   }
-
-  rparams->lparams = LaunchParams(
-      gdimx,
-      gdimy,
-      gdimz,
-      LaunchParams::UNINITIALIZED_VAL,
-      bdimy,
-      LaunchParams::UNINITIALIZED_VAL,
-      cdimx,
-      cdimy,
-      cdimz);
 
   rparams->tag = "Inner Persistent Heuristic.\n";
 

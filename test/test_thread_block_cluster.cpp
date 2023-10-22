@@ -238,63 +238,58 @@ TEST_F(NVFuserTest, ClusterReduceMagicSchedule) {
   }
 }
 
-TEST_F(NVFuserTest, GridNormalization) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
+TEST_F(NVFuserTest, ClusterNormalization) {
+  auto test = [&](const int batch, const int kidx) {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
 
-  auto tv0 = makeContigTensor(2);
-  fusion.addInput(tv0);
-  auto tv1 = set(tv0);
-  auto tv2 = sum(tv1, {-1});
-  auto tv3 = broadcast(tv2, {false, true});
-  auto tv4 = add(tv1, tv3);
-  auto tv5 = set(tv4);
-  fusion.addOutput(tv5);
+    auto tv0 = makeContigTensor(2);
+    fusion.addInput(tv0);
+    auto tv1 = set(tv0);
+    auto tv2 = sum(tv1, {-1});
+    auto tv3 = broadcast(tv2, {false, true});
+    auto tv4 = add(tv1, tv3);
+    auto tv5 = set(tv4);
+    fusion.addOutput(tv5);
 
-  // vectorization
-  const int vect = 4;
-  tv2->split(-1, vect);
+    // vectorization
+    const int vect = 4;
+    tv2->split(-1, vect);
 
-  // persistent batch
-  const int persistent_batch = 5;
-  tv2->split(-2, persistent_batch);
+    // persistent batch
+    const int persistent_batch = 5;
+    tv2->split(-2, persistent_batch);
 
-  // block reduction
-  const int tidx = 512;
-  tv2->split(-3, tidx);
+    // block reduction
+    const int tidx = 512;
+    tv2->split(-3, tidx);
 
-  // // cluster reduction
-  const int kidx = 8;
-  // tv2->split(-3, kidx);
+    // tv2: [i0, r0/tidx/batch/vect, tidx, batch, vect]
+    auto ref = tv2->rFactor({-1, -2});
 
-  // tv2: [i0, r0/tidx/batch/vect, tidx, batch, vect]
-  auto ref = tv2->rFactor({-1, -2});
+    TransformPropagator propagator(ref);
+    MaxRootDomainInfoSpanningTree(ref).traverse(&propagator);
 
-  TransformPropagator propagator(ref);
-  MaxRootDomainInfoSpanningTree(ref).traverse(&propagator);
+    // ref = [i0, r0/tidx/batch/vect, tidx, batch, vect]
+    ref->axis(0)->parallelize(ParallelType::BIDy);
+    if (std::getenv("USE_CLUSTER")) {
+      ref->axis(1)->parallelize(ParallelType::KIDx);
+    } else {
+      ref->axis(1)->parallelize(ParallelType::BIDx);
+    }
+    ref->axis(2)->parallelize(ParallelType::TIDx);
+    ref->axis(3)->parallelize(ParallelType::Serial);
+    ref->axis(4)->parallelize(ParallelType::Serial);
+    scheduler_utils::parallelizeAllLike(ref);
 
-  // ref = [i0, r0/tidx/batch/vect, tidx, batch, vect]
-  ref->axis(0)->parallelize(ParallelType::BIDy);
-  if (std::getenv("USE_CLUSTER")) {
-    ref->axis(1)->parallelize(ParallelType::KIDx);
-  } else {
-    ref->axis(1)->parallelize(ParallelType::BIDx);
-  }
-  ref->axis(2)->parallelize(ParallelType::TIDx);
-  ref->axis(3)->parallelize(ParallelType::Serial);
-  ref->axis(4)->parallelize(ParallelType::Serial);
-  scheduler_utils::parallelizeAllLike(ref);
+    fusion.printMath();
+    tv1->axis(-1)->parallelize(ParallelType::Vectorize);
+    tv5->axis(-1)->parallelize(ParallelType::Vectorize);
 
-  fusion.printMath();
-  tv1->axis(-1)->parallelize(ParallelType::Vectorize);
-  tv5->axis(-1)->parallelize(ParallelType::Vectorize);
+    inlineMost();
 
-  inlineMost();
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-
-  auto test = [&](int num_elements) {
-    at::Tensor t0 = at::ones({132 / kidx, num_elements}, options);
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+    at::Tensor t0 = at::ones({batch, vect * tidx * kidx * persistent_batch}, options);
     std::vector<c10::IValue> aten_inputs = {t0};
 
     FusionExecutor fe;
@@ -305,14 +300,21 @@ TEST_F(NVFuserTest, GridNormalization) {
     auto t3 = t0 + t2;
     testValidate(&fusion, outputs, aten_inputs, {t3}, __LINE__, __FILE__);
   };
-  // 0.055 ms for grid
-  // 0.122 ms for cluster
-  for (auto n : {vect * persistent_batch * tidx * kidx}) {
-    test(n);
+  
+  // small batch, one wave
+  for (auto kidx = 1; kidx <= 8; kidx++) {
+    int batch = 132 / kidx;
+    test(batch, kidx);
+  }
+
+  // large batch
+  for (auto kidx = 1; kidx <= 8; kidx++) {
+    int batch = 32 * 1024;
+    test(batch, kidx);
   }
 }
 
-TEST_F(NVFuserTest, TMP) {
+TEST_F(NVFuserTest, ClusterNormalizationMagicSchedule) {
   auto test = [&](int batch, int num_elements) {
     std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
     Fusion& fusion = *fusion_ptr.get();
@@ -345,8 +347,8 @@ TEST_F(NVFuserTest, TMP) {
     auto t2 = t0.sum({-1}).unsqueeze({-1}).add(t0);
     testValidate(&fusion, outputs, aten_inputs, {t2}, __LINE__, __FILE__);
   };
-  for (int batch = 66; batch <= 66; batch += 33) {
-    for (int redu = 56; redu <= 56; redu += 32) {
+  for (int batch = 66; batch <= 66 * 8; batch *= 2) {
+    for (int redu = 64; redu <= 128; redu += 32) {
       test(batch, redu * 1024);
     }
   }

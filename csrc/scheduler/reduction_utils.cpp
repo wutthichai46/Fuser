@@ -139,9 +139,9 @@ TensorView* scheduleReductionTV(
     if (rparams.cross_grid_inner_reduction) {
       outer_parallel(outer_i++, rparams.grid_dim_inner_reduction);
     }
-    else if (rparams.cross_cluster_inner_reduction) {
-      outer_parallel(outer_i++, rparams.cluster_dim_inner_reduction);
-    }
+    // else if (rparams.cross_cluster_inner_reduction) {
+    //   outer_parallel(outer_i++, rparams.cluster_dim_inner_reduction);
+    // }
     reduction_tv->split(
         outer_i++, rparams.batches_per_block_inner_reduction, false);
 
@@ -152,17 +152,28 @@ TensorView* scheduleReductionTV(
       outer_unroll(outer_i++, (int)rparams.unroll_factor_inner_reduction);
     }
 
-    if (rparams.combined_inner_outer && !rparams.multiple_reds_per_blk) {
+    if (rparams.cross_cluster_inner_reduction) {
+      NVF_ERROR(
+          rparams.lparams.bdimx() > 1,
+          "for persistent_kernel with cross_cluster_inner_reduction, rparams.lparams.bdimx() must be static and larger than 1.");
+      inner_parallel_static(
+          outer_i, rparams.block_dim_inner_reduction, rparams.lparams.bdimx());
       reduction_tv->axis(outer_i)->parallelize(
-          rparams.block_dim_inner_reduction_extra);
+          rparams.cluster_dim_inner_reduction);
     } else {
-      reduction_tv->axis(outer_i)->parallelize(
-          rparams.block_dim_inner_reduction);
+      if (rparams.combined_inner_outer && !rparams.multiple_reds_per_blk) {
+        reduction_tv->axis(outer_i)->parallelize(
+            rparams.block_dim_inner_reduction_extra);
+      } else {
+        reduction_tv->axis(outer_i)->parallelize(
+            rparams.block_dim_inner_reduction);
+      }
+
+      if (rparams.pad_inner_reduction_to_warp) {
+        reduction_tv->axis(outer_i)->padToMultipleOfWarp();
+      }
     }
 
-    if (rparams.pad_inner_reduction_to_warp) {
-      reduction_tv->axis(outer_i)->padToMultipleOfWarp();
-    }
   } else {
     // Non-persistent format:
     // [Grid Split, Remainder, unswitch, unroll, thread dim, vectorize]
@@ -274,6 +285,7 @@ TensorView* scheduleReductionTV(
       }
     }
   }
+  std::cout << "reduction_tv= " << reduction_tv->toString() << std::endl;
 
   auto reduction_rf_tv = sortAndRFactor(reduction_tv);
 
