@@ -300,7 +300,7 @@ TEST_F(NVFuserTest, ClusterNormalization) {
     auto t3 = t0 + t2;
     testValidate(&fusion, outputs, aten_inputs, {t3}, __LINE__, __FILE__);
   };
-  
+
   // small batch, one wave
   for (auto kidx = 1; kidx <= 8; kidx++) {
     int batch = 132 / kidx;
@@ -351,6 +351,86 @@ TEST_F(NVFuserTest, ClusterNormalizationMagicSchedule) {
     for (int redu = 64; redu <= 128; redu += 32) {
       test(batch, redu * 1024);
     }
+  }
+}
+
+TEST_F(NVFuserTest, GridPersistentNormalization) {
+  auto test = [&](const int batch, const int kidx) {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+
+    auto tv0 = makeContigTensor(2);
+    fusion.addInput(tv0);
+    auto tv1 = set(tv0);
+    auto tv2 = sum(tv1, {-1});
+    auto tv3 = broadcast(tv2, {false, true});
+    auto tv4 = add(tv1, tv3);
+    auto tv5 = set(tv4);
+    fusion.addOutput(tv5);
+
+    // grid iteration
+    const int gdimy = 132 / kidx;
+    tv2->split(0, gdimy);
+
+    // vectorization
+    const int vect = 4;
+    tv2->split(-1, vect);
+
+    // persistent batch
+    const int persistent_batch = 5;
+    tv2->split(-2, persistent_batch);
+
+    // block reduction
+    const int tidx = 512;
+    tv2->split(-3, tidx);
+
+    // tv2: [i0/gdimy, gdimy, r0/tidx/batch/vect, tidx, batch, vect]
+    auto ref = tv2->rFactor({-1, -2});
+
+    TransformPropagator propagator(ref);
+    MaxRootDomainInfoSpanningTree(ref).traverse(&propagator);
+
+    // ref = [i0, r0/tidx/batch/vect, tidx, batch, vect]
+    ref->axis(1)->parallelize(ParallelType::BIDy);
+    if (std::getenv("USE_CLUSTER")) {
+      ref->axis(-4)->parallelize(ParallelType::KIDx);
+    } else {
+      ref->axis(-4)->parallelize(ParallelType::BIDx);
+    }
+    ref->axis(-3)->parallelize(ParallelType::TIDx);
+    ref->axis(-2)->parallelize(ParallelType::Serial);
+    ref->axis(-1)->parallelize(ParallelType::Serial);
+    scheduler_utils::parallelizeAllLike(ref);
+
+    fusion.printMath();
+    tv1->axis(-1)->parallelize(ParallelType::Vectorize);
+    tv5->axis(-1)->parallelize(ParallelType::Vectorize);
+
+    inlineMost();
+
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+    at::Tensor t0 = at::ones({batch, vect * tidx * kidx * persistent_batch}, options);
+    std::vector<c10::IValue> aten_inputs = {t0};
+
+    FusionExecutor fe;
+    fe.compileFusion(&fusion, aten_inputs);
+    std::vector<at::Tensor> outputs = fe.runFusion(aten_inputs);
+    auto t1 = t0.sum({-1});
+    auto t2 = t1.unsqueeze(-1);
+    auto t3 = t0 + t2;
+    testValidate(&fusion, outputs, aten_inputs, {t3}, __LINE__, __FILE__);
+  };
+  
+  // small batch, one wave
+  for (auto kidx = 1; kidx <= 8; kidx++) {
+    int batch = 132 / kidx;
+    test(batch, kidx);
+  }
+
+  // large batch
+  for (auto kidx = 1; kidx <= 8; kidx++) {
+    int batch = 32 * 1024;
+    test(batch, kidx);
   }
 }
 
