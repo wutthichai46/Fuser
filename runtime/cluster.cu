@@ -187,6 +187,7 @@ template <
     bool Y_REDUCE,
     bool Z_REDUCE,
     bool Aligned,
+    bool FusedWithBroadcast,
     typename T,
     typename Func>
 __device__ void clusterReduce(
@@ -245,7 +246,11 @@ __device__ void clusterReduce(
         T other_val = load_data_from_other_cta(shared_mem, factor);
         reduction_op(ans, other_val);
       }
-      reduction_op(out, ans);
+      if(FusedWithBroadcast){
+        shared_mem[0] = ans;
+      }else{
+        reduction_op(out, ans);
+      }
     }
   #else
     int bluster_id = block_id_in_cluster().x;
@@ -274,8 +279,18 @@ __device__ void clusterReduce(
       reduction_op(out, local_val);
     }
   #endif
-  // all done.
+  // reduction is all done. shared_mem[0] has the right ans.
   cluster_sync();
+
+  // broadcast
+  if(FusedWithBroadcast){
+    if(block_id_in_cluster().x == 0){
+      out = shared_mem[0];
+    }else{
+      out = load_data_from_other_cta(shared_mem, 0);
+    }
+    cluster_sync();
+  }
 }
 
 template <bool X_THREAD, bool Y_THREAD, bool Z_THREAD, bool Aligned, typename T>

@@ -1246,7 +1246,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       const Val* init,
       BinaryOpType reduction_op_type,
       kir::Predicate* read_pred,
-      kir::Predicate* write_pred) {
+      kir::Predicate* write_pred,
+      const bool is_fused_with_broadcast) {
     const auto par_domains = ir_utils::getParallelDomains(output);
     // Get parallel reduction domains
     const bool tidx =
@@ -1264,6 +1265,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     ArgumentBuilder template_args;
     template_args.arg(tidx).arg(tidy).arg(tidz);
     template_args.arg(isAligned());
+    template_args.arg(is_fused_with_broadcast);
 
     ArgumentBuilder func_args;
     func_args.arg(gen(output));
@@ -1309,7 +1311,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           rop->init(),
           op_type,
           rop->predicate(),
-          rop->writePredicate());
+          rop->writePredicate(),
+          rop->isAllreduce());
     } else if (!has_block_reduce) {
       genSerialReduction(output, input, op_type);
     } else if (

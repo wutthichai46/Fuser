@@ -70,7 +70,7 @@ class FusionInspector : private IterVisitor {
     // fused reduction kernel.
     auto out = ir_utils::getTvOutput(rop);
     if (out->getMemoryType() == MemoryType::Local &&
-        out->domain()->hasGridReduction()) {
+        (out->domain()->hasGridReduction() || out->domain()->hasClusterReduction())) {
       reduction_dep_[out].insert(rop);
     }
   }
