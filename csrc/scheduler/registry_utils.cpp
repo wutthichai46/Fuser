@@ -7,6 +7,7 @@
 // clang-format on
 #include <executor_kernel_arg.h>
 #include <ir/utils.h>
+#include <ops/arith.h>
 #include <root_domain_map.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/registry_utils.h>
@@ -208,6 +209,23 @@ bool rejectScheduleForMemoryPromotion(
   return false;
 }
 
+namespace {
+
+void connectReductionTvs(const std::vector<TensorView*>& reduction_tvs) {
+  if (reduction_tvs.size() <= 1) {
+    return;
+  }
+  auto reduced_tv_0 = ir_utils::getSoleProducerTv(reduction_tvs[0]);
+  for (int i = 1; i < (int)reduction_tvs.size(); i++) {
+    auto reduced_tv_i = ir_utils::getSoleProducerTv(reduction_tvs[i]);
+    auto linked_tv_0i = sub(add(reduced_tv_i, reduced_tv_0), reduced_tv_0);
+    ir_utils::replaceValInExprInputs(
+        reduction_tvs[i]->definition(), reduced_tv_i, linked_tv_0i);
+  }
+}
+
+} // namespace
+
 bool isConnectedFusionGraph(Fusion* fusion) {
   if (fusion->outputs().empty()) {
     // Trivial case interpreted as connected
@@ -246,12 +264,33 @@ bool isConnectedFusionGraph(Fusion* fusion) {
   //  If there is no independent compute flow
   // on this fusion graph, all outputs will be
   // equivalent/connected to the first output.
+  bool is_connected = true;
   for (auto output : fusion->outputs()) {
     if (!component_sets.strictAreMapped(output0, output)) {
-      return false;
+      is_connected = false;
+      break;
     }
   }
-  return true;
+
+  // try to make it connected
+  if (std::getenv("USE_CONNECT")) {
+    if (!is_connected) {
+      std::vector<TensorView*> inner_reduction_tvs;
+      std::vector<TensorView*> outer_reduction_tvs;
+      const auto& reduction_tvs = scheduler_utils::getReductionTvs(fusion);
+      for (auto tv : reduction_tvs) {
+        if (scheduler_utils::isFastestDimReduction(tv)) {
+          inner_reduction_tvs.emplace_back(tv);
+        } else {
+          outer_reduction_tvs.emplace_back(tv);
+        }
+      }
+      connectReductionTvs(inner_reduction_tvs);
+      connectReductionTvs(outer_reduction_tvs);
+    }
+  }
+
+  return is_connected;
 }
 
 // Returns if a fusion cannot transformed into a consistent format since we

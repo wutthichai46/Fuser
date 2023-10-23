@@ -1061,4 +1061,38 @@ TEST_F(NVFuserTest, CombinedSchedulerInnerOuterMismatch) {
   test({0});
 }
 
+TEST_F(NVFuserTest, TMP) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(2);
+  auto tv1 = makeContigTensor(2);
+  auto tv2 = makeContigTensor(2);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  fusion.addInput(tv2);
+  auto tv3 = add(tv0, tv1);
+  auto tv4 = add(tv0, tv2);
+  auto tv5 = sum(tv3, {-1});
+  auto tv6 = sum(tv4, {0});
+  fusion.addOutput(tv5);
+  fusion.addOutput(tv6);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({132, 10240}, options);
+  at::Tensor t1 = at::randn({132, 10240}, options);
+  at::Tensor t2 = at::randn({132, 10240}, options);
+  std::vector<c10::IValue> aten_inputs = {t0,t1,t2};
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
+
+  // auto t1 = t0.sum({-1});
+  // auto t2 = t1.unsqueeze(-1);
+  // auto t3 = t0 + t2;
+  // auto t4 = t0.sum(vec64);
+  // testValidate(&fusion, cg_outputs, aten_inputs, {t3, t4}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser

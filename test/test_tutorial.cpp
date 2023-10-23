@@ -630,4 +630,69 @@ TEST_F(Tutorial, Reshape) {
   }
 }
 
+TEST_F(NVFuserTest, TMP1) {
+  auto test = [](int reduction_axis) {
+    std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+    Fusion& fusion = *fusion_ptr.get();
+    FusionGuard fg(&fusion);
+
+    auto tv0 = makeContigTensor(2);
+    auto tv1 = makeContigTensor(2);
+    fusion.addInput(tv0);
+    fusion.addInput(tv1);
+    auto tv2 = sum(tv0, {reduction_axis});
+    auto tv3 = sum(tv1, {reduction_axis});
+    fusion.addOutput(tv2);
+    fusion.addOutput(tv3);
+
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+    at::Tensor t0 = at::randn({4096, 10240}, options);
+    at::Tensor t1 = at::randn({4096, 10240}, options);
+    std::vector<c10::IValue> aten_inputs = {t0, t1};
+
+    FusionExecutorCache fec(std::move(fusion_ptr));
+    auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
+
+    auto t2 = t0.sum({reduction_axis});
+    auto t3 = t1.sum({reduction_axis});
+    testValidate(
+        &fusion, cg_outputs, aten_inputs, {t2, t3}, __LINE__, __FILE__);
+  };
+
+  test(0);
+  test(1);
+}
+
+TEST_F(NVFuserTest, TMP2) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(2);
+  auto tv1 = makeContigTensor(2);
+  auto tv2 = makeContigTensor(2);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  fusion.addInput(tv2);
+  auto tv3 = sum(tv0, {0});
+  auto tv4 = sum(tv1, {1});
+  auto tv5 = sum(tv2, {1});
+  fusion.addOutput(tv3);
+  fusion.addOutput(tv4);
+  fusion.addOutput(tv5);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({4096, 10240}, options);
+  at::Tensor t1 = at::randn({4096, 10240}, options);
+  at::Tensor t2 = at::randn({4096, 10240}, options);
+  std::vector<c10::IValue> aten_inputs = {t0, t1, t2};
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
+
+  auto t3 = t0.sum({0});
+  auto t4 = t1.sum({1});
+  auto t5 = t2.sum({1});
+  testValidate(&fusion, cg_outputs, aten_inputs, {t3, t4, t5}, __LINE__, __FILE__);
+}
 } // namespace nvfuser

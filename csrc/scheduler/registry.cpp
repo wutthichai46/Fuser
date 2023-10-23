@@ -14,6 +14,7 @@
 #include <scheduler/registry_utils.h>
 #include <scheduler/utils.h>
 #include <tensor_metadata.h>
+#include <ops/arith.h>
 
 namespace nvfuser {
 
@@ -156,6 +157,7 @@ bool checkCanSchedule(
   //  fusion.
   if (!data_cache) {
     if (!registry_utils::isConnectedFusionGraph(fusion)) {
+      fusion->printMath();
       return false;
     }
     if (IterDomainGraph(fusion, /*allow_self_mapping=*/true).hasSelfMapping()) {
