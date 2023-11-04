@@ -181,7 +181,6 @@ TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
         __LINE__,
         __FILE__);
     if (isBenchmark) {
-      FusionKernelRuntime* fkr = fec.getMostRecentKernelRuntime();
       ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
 
       constexpr int nwarm = 5;

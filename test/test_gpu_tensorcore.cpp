@@ -16,6 +16,7 @@
 #include <executor_params.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
+#include <fusion_profiler.h>
 #include <fusion_segmenter.h>
 #include <ir/all_nodes.h>
 #include <ir/graphviz.h>
@@ -1000,7 +1001,6 @@ TEST_F(NVFuserTest, FusionAmpereSwizzle_CUDA) {
     auto inputs = matmulAtInput(M, N, K, layout);
 
     FusionExecutor fe;
-    fe.setMeasureKernelTimeFlag(true);
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
         8,
         0,
@@ -1010,8 +1010,12 @@ TEST_F(NVFuserTest, FusionAmpereSwizzle_CUDA) {
             LaunchParams(),
             matmul_cparams));
     ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+
+    FusionProfiler::startSingleKernel();
     auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
-    auto tref = atMatmul(
+    FusionProfiler::stopSingleKernel();
+    
+      auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
     NVF_CHECK(cg_outputs[0].allclose(tref, 0.01, 0.01));
 
@@ -1025,8 +1029,8 @@ TEST_F(NVFuserTest, FusionAmpereSwizzle_CUDA) {
     NVF_CHECK(gdimx == expected_gdimx);
     NVF_CHECK(gdimy == expected_gdimy);
 
-    runtime = fe.kernelTimeMs();
-
+    runtime = FusionProfiler::profile().kernel_time_ms;
+    ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
     // Check that mma op is not predicated. This is a regression test for
     // https://github.com/NVIDIA/Fuser/issues/95
     class PredicateChecker : public kir::IrVisitor {

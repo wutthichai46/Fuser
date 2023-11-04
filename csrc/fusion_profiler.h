@@ -224,8 +224,6 @@ class FusionProfiler {
   //! (Used for testing!)
   static void startSingleKernel();
   static void stopSingleKernel();
-  
-
 
   //! Methods to capture Asynchronous CUPTI activity that get called from
   //! functions registered with CUPTI.
