@@ -209,7 +209,7 @@ class FusionProfiler {
   static void reset();
   static ProfilerState state();
 
-  //! Profiling Methods
+  //! Profiling Methods for a Fusion
   static void start(bool cupti_disable = false);
   static void stop();
   static void createSegments(size_t num);
@@ -219,6 +219,13 @@ class FusionProfiler {
   static void outputBytesAccessed(int64_t bytes);
   static const FusionProfile& profile();
   static SegmentProfiler& segment(size_t idx);
+ 
+  //! Special methods for Profiling an Executor outside of a Fusion
+  //! (Used for testing!)
+  static void startSingleKernel();
+  static void stopSingleKernel();
+  
+
 
   //! Methods to capture Asynchronous CUPTI activity that get called from
   //! functions registered with CUPTI.

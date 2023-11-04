@@ -691,11 +691,12 @@ void FusionProfiler::stop() {
           fp->segments_[kp_idx].state());
       kprof.input_bytes = segment(kp_idx).inputBytes();
       kprof.output_bytes = segment(kp_idx).outputBytes();
-      kprof.effective_bandwidth_gbs =
-          (double)(kprof.input_bytes + kprof.output_bytes) / kprof.time_ms *
-          mb_divider;
-      kprof.percentage_peak_bandwidth =
-          kprof.effective_bandwidth_gbs / kprof.peak_bandwidth_gbs * 100.0;
+      if (auto total_bytes = kprof.input_bytes + kprof.output_bytes > 0) {
+        kprof.effective_bandwidth_gbs = (double)(total_bytes) / kprof.time_ms *
+            mb_divider;
+        kprof.percentage_peak_bandwidth =
+            kprof.effective_bandwidth_gbs / kprof.peak_bandwidth_gbs * 100.0;
+      }
       kprof.compile_time_ms = segment(kp_idx).compileTime();
 
       kernel_time_ms += kprof.time_ms;
@@ -708,11 +709,12 @@ void FusionProfiler::stop() {
           "All Segment profiles must be on the same device!");
     }
     fprof.kernel_time_ms = kernel_time_ms;
-    fprof.effective_bandwidth_gbs =
-        (double)(fprof.input_bytes + fprof.output_bytes) / kernel_time_ms *
-        mb_divider;
-    fprof.percentage_peak_bandwidth = fprof.effective_bandwidth_gbs /
-        fp->device_descriptors_[segment(0).device()].peak_bandwidth_gbs * 100.0;
+    if (auto total_bytes = fprof.input_bytes + fprof.output_bytes > 0) {
+      fprof.effective_bandwidth_gbs = (double)(total_bytes) / kernel_time_ms *
+          mb_divider;
+      fprof.percentage_peak_bandwidth = fprof.effective_bandwidth_gbs /
+          fp->device_descriptors_[segment(0).device()].peak_bandwidth_gbs * 100.0;
+    }
   }
   fprof.compile_time_ms = fp->compile_timer_.time();
 
