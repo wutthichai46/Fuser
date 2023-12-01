@@ -279,10 +279,15 @@ TensorView* full(
 
 TensorView* full_like(TensorView* tv, Val* fill_value, DataType dtype) {
   std::vector<Val*> shape;
-  auto dom = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
-  shape.reserve(dom.size());
-  for (auto id : dom) {
-    shape.emplace_back(id->getMaybeExpandedExtent());
+  auto domain = tv->getMaybeRFactorDomain();
+  for (auto dim : c10::irange(domain.size())) {
+    if (domain.at(dim)->isReduction()) {
+      continue;
+    }
+    auto val = IrBuilder::getItemExpr(
+        IrBuilder::getAttrExpr(IrBuilder::metadataExpr(tv), "logical_size"),
+        (int64_t)dim);
+    shape.emplace_back(val);
   }
   return full(shape, fill_value, dtype);
 }
