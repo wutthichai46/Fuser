@@ -2931,9 +2931,17 @@ class TestNvFuserFrontend(TestCase):
         self.assertEqual(nvf_out[2], t31)
 
     def test_issue1279(self):
-        inputs = [torch.randn(2, 1, 2, dtype=torch.float16, device='cuda:0'),]
-        def fusion_func(fd : FusionDefinition) -> None :
-            T0 = fd.define_tensor(shape=[-1, 1, -1], contiguity=[True, None, True], dtype=DataType.Half, is_cpu=False)
+        inputs = [
+            torch.randn(2, 1, 2, dtype=torch.float16, device="cuda:0"),
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.define_tensor(
+                shape=[-1, 1, -1],
+                contiguity=[True, None, True],
+                dtype=DataType.Half,
+                is_cpu=False,
+            )
             T4 = fd.ops.cast(T0, dtype=DataType.Float)
             T5, T6 = fd.ops.var_mean(T4, axes=[1], correction=1, keepdim=False)
             T7 = fd.ops.cast(T5, dtype=DataType.Half)
