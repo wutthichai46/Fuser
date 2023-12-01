@@ -265,7 +265,7 @@ TensorView* full(
     const std::vector<Val*>& shape,
     Val* fill_value,
     DataType dtype,
-    TensorView* tv) {
+    TensorView* in) {
   fill_value = maybeCastOp(dtype, fill_value);
   auto n = shape.size();
   auto out = TensorViewBuilder()
@@ -274,7 +274,7 @@ TensorView* full(
                  .contiguity(true)
                  .shape(shape)
                  .build();
-  IrBuilder::create<FullOp>(out, fill_value, tv);
+  IrBuilder::create<FullOp>(out, in, fill_value);
   return out;
 }
 

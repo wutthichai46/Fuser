@@ -196,7 +196,7 @@ TensorView* full(
     const std::vector<Val*>& shape,
     Val* fill_value,
     DataType dtype,
-    TensorView* tv = nullptr);
+    TensorView* in = nullptr);
 TensorView* full_like(TensorView* tv, Val* fill_value, DataType dtype);
 TensorView* full_like(TensorView* tv, Val* fill_value);
 Val* full_like(Val* tv, Val* fill_value);
