@@ -33,13 +33,16 @@
 
 namespace nvfuser {
 
-FullOp::FullOp(IrBuilderPasskey passkey, Val* out, Val* fill_value)
+FullOp::FullOp(IrBuilderPasskey passkey, Val* out, Val* fill_value, Val* in)
     : Expr(passkey) {
   if (out->isA<TensorView>()) {
     auto tv_root = out->as<TensorView>()->getRootDomain();
     for (auto id : tv_root) {
       addInput(id->extent());
     }
+  }
+  if (in != nullptr) {
+    addInput(in);
   }
   addInput(fill_value);
   addOutput(out);

@@ -264,7 +264,8 @@ Val* rand_like(Val* v) {
 TensorView* full(
     const std::vector<Val*>& shape,
     Val* fill_value,
-    DataType dtype) {
+    DataType dtype,
+    TensorView* tv) {
   fill_value = maybeCastOp(dtype, fill_value);
   auto n = shape.size();
   auto out = TensorViewBuilder()
@@ -273,23 +274,18 @@ TensorView* full(
                  .contiguity(true)
                  .shape(shape)
                  .build();
-  IrBuilder::create<FullOp>(out, fill_value);
+  IrBuilder::create<FullOp>(out, fill_value, tv);
   return out;
 }
 
 TensorView* full_like(TensorView* tv, Val* fill_value, DataType dtype) {
   std::vector<Val*> shape;
-  auto domain = tv->getMaybeRFactorDomain();
-  for (auto dim : c10::irange(domain.size())) {
-    if (domain.at(dim)->isReduction()) {
-      continue;
-    }
-    auto val = IrBuilder::getItemExpr(
-        IrBuilder::getAttrExpr(IrBuilder::metadataExpr(tv), "logical_size"),
-        (int64_t)dim);
-    shape.emplace_back(val);
+  auto dom = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
+  shape.reserve(dom.size());
+  for (auto id : dom) {
+    shape.emplace_back(id->getMaybeExpandedExtent());
   }
-  return full(shape, fill_value, dtype);
+  return full(shape, fill_value, dtype, tv);
 }
 
 TensorView* full_like(TensorView* tv, Val* fill_value) {
@@ -1244,7 +1240,7 @@ TensorView* maybeFullInsteadOfReduction(
       dtype = (dtype == DataType::Null ? tv->getDataType().value() : dtype);
       auto output = IrBuilder::create<TensorView>(td, dtype);
       init = maybeCastOp(dtype, init);
-      IrBuilder::create<FullOp>(output, init);
+      IrBuilder::create<FullOp>(output, init, tv);
       return output;
     }
   }

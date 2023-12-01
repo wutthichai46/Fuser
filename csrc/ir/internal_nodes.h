@@ -42,7 +42,7 @@ class FullOp : public Expr {
  public:
   using Expr::Expr;
 
-  FullOp(IrBuilderPasskey, Val* out, Val* fill_value);
+  FullOp(IrBuilderPasskey, Val* out, Val* fill_value, Val* in = nullptr);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
