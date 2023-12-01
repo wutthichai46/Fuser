@@ -126,7 +126,8 @@ TensorView* rand(
     const std::vector<Val*>& shape,
     DataType dtype,
     Val* philox_seed,
-    Val* philox_offset) {
+    Val* philox_offset,
+    TensorView* in) {
   auto n = shape.size();
   auto out = TensorViewBuilder()
                  .ndims(n)
@@ -137,6 +138,7 @@ TensorView* rand(
   IrBuilder::create<RNGOp>(
       RNGOpType::Uniform,
       out,
+      in,
       dtype,
       std::vector<Val*>{},
       philox_seed,
@@ -162,6 +164,7 @@ TensorView* uniform(
   IrBuilder::create<RNGOp>(
       RNGOpType::UniformRange,
       out,
+      nullptr /* in */,
       dtype,
       std::vector<Val*>{low, high},
       philox_seed,
@@ -186,6 +189,7 @@ TensorView* normal(
   IrBuilder::create<RNGOp>(
       RNGOpType::NormalGeneral,
       out,
+      nullptr /* in */,
       dtype,
       std::vector<Val*>{mean, std},
       philox_seed,
@@ -197,7 +201,8 @@ TensorView* randn(
     const std::vector<Val*>& shape,
     DataType dtype,
     Val* philox_seed,
-    Val* philox_offset) {
+    Val* philox_offset,
+    TensorView* in) {
   auto n = shape.size();
   auto out = TensorViewBuilder()
                  .ndims(n)
@@ -208,6 +213,7 @@ TensorView* randn(
   IrBuilder::create<RNGOp>(
       RNGOpType::NormalStandard,
       out,
+      in,
       dtype,
       std::vector<Val*>{},
       philox_seed,
@@ -226,7 +232,7 @@ TensorView* randn_like(TensorView* tv, Val* philox_seed, Val* philox_offset) {
   for (auto id : dom) {
     shape.emplace_back(id->getMaybeExpandedExtent());
   }
-  return randn(shape, tv->dtype(), philox_seed, philox_offset);
+  return randn(shape, tv->dtype(), philox_seed, philox_offset, tv);
 }
 TensorView* randn_like(TensorView* tv) {
   return randn_like(tv, nullptr, nullptr);
@@ -249,7 +255,7 @@ TensorView* rand_like(TensorView* tv, Val* philox_seed, Val* philox_offset) {
   for (auto id : dom) {
     shape.emplace_back(id->getMaybeExpandedExtent());
   }
-  return rand(shape, tv->dtype(), philox_seed, philox_offset);
+  return rand(shape, tv->dtype(), philox_seed, philox_offset, tv);
 }
 TensorView* rand_like(TensorView* tv) {
   return rand_like(tv, nullptr, nullptr);

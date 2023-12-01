@@ -154,7 +154,8 @@ TensorView* rand(
     const std::vector<Val*>& shape,
     DataType dtype,
     Val* philox_seed = nullptr,
-    Val* philox_offset = nullptr);
+    Val* philox_offset = nullptr,
+    TensorView* in = nullptr);
 TensorView* rand_like(TensorView*, Val* philox_seed, Val* philox_offset);
 // Note that overloading these would be convenient, but overloaded functions are
 // difficult to cast correctly. In the serde method
@@ -170,7 +171,8 @@ TensorView* randn(
     const std::vector<Val*>& shape,
     DataType dtype,
     Val* philox_seed = nullptr,
-    Val* philox_offset = nullptr);
+    Val* philox_offset = nullptr,
+    TensorView* in = nullptr);
 TensorView* randn_like(TensorView*, Val* philox_seed, Val* philox_offset);
 Val* randn_like(Val*, Val* philox_seed, Val* philox_offset);
 TensorView* randn_like(TensorView* tv);

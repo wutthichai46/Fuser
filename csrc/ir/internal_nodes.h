@@ -691,6 +691,7 @@ class RNGOp : public Expr {
       IrBuilderPasskey,
       RNGOpType type,
       Val* out,
+      Val* in,
       DataType dtype,
       std::vector<Val*> parameters = {},
       Val* philox_seed = nullptr,

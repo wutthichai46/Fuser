@@ -41,7 +41,7 @@ FullOp::FullOp(IrBuilderPasskey passkey, Val* out, Val* in, Val* fill_value)
       addInput(id->extent());
     }
   }
-  if (in != nullptr) {
+  if (in) {
     addInput(in);
   }
   addInput(fill_value);
@@ -1101,6 +1101,7 @@ RNGOp::RNGOp(
     IrBuilderPasskey passkey,
     RNGOpType type,
     Val* out,
+    Val* in,
     DataType dtype,
     std::vector<Val*> parameters,
     Val* philox_seed,
@@ -1122,6 +1123,9 @@ RNGOp::RNGOp(
         "If either philox_seed or philox_offset is provided, the other must be also");
     addInput(philox_seed);
     addInput(philox_offset);
+  }
+  if (in) {
+    addInput(in);
   }
   addOutput(out);
   RNGOp::Attributes attr{type, dtype, parameters.size()};
