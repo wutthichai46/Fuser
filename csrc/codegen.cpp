@@ -2697,10 +2697,20 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       } else {
         indent() << "// Alias Allocation (changing dtype) - "
                  << alloc->memoryType() << "\n";
-        indent() << "auto " << genVariableName(tv)
-                 << " = *reinterpret_cast<Array<" << buffer_dtype << ", "
-                 << genInline(size) << ">*>(&" << genVariableName(alias_tv)
-                 << ");\n";
+        // The type of alias is either T[N] or Array<T, N>,
+        // depends on how [alias_tv] was allocated.
+        // If vectorized, then it is Array<T, N>.
+        auto va = kernel_->summary().vectorized_accesses;
+        if (va.find(alias_tv) != va.end()) {
+          indent() << "auto " << genVariableName(tv)
+                   << " = *reinterpret_cast<Array<" << buffer_dtype << ", "
+                   << genInline(size) << ">*>(&" << genVariableName(alias_tv)
+                   << ");\n";
+        } else {
+          indent() << "auto " << genVariableName(tv) << " = reinterpret_cast<"
+                   << buffer_dtype << "*>(&" << genVariableName(alias_tv)
+                   << ");\n";
+        }
       }
     } else {
       // Standard Memory Allocation
