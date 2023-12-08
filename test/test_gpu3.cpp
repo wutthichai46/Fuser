@@ -8700,8 +8700,8 @@ TEST_F(NVFuserTest, ChainProjectionToPersistentProducer) {
 // `float T4[4]` is aliased as `auto& T10 = T4`.
 // Using `T9` and `T10` in `welfordGroupOuter` function causes a compilation
 // error due to type mismatch: `T9` is a custom array type, while `T10` is a
-// native float array.
-// Fix: when aliasing different types, cast to T* instead of Array<T, N>.
+// native float array. when aliasing different types, use Array<T, N> or T[N]
+// should depend on how the original tv was allocated.
 TEST_F(NVFuserTest, RegisterAliasWithTypeChange) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
