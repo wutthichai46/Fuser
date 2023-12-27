@@ -1719,6 +1719,8 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   }
   args.push(outputs);
 
+  expr_eval.print();
+
   for (const auto i : c10::irange(outputs.size())) {
     auto output = kernel()->outputs()[i];
     if (std::any_of(
