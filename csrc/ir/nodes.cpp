@@ -45,6 +45,7 @@ FullOp::FullOp(IrBuilderPasskey passkey, Val* out, Val* in, Val* fill_value)
       addInput(id->extent());
     }
   }
+  bool is_full_like = false;
   if (in != nullptr) {
     NVF_ERROR(
         in->isA<TensorView>(),
@@ -53,12 +54,13 @@ FullOp::FullOp(IrBuilderPasskey passkey, Val* out, Val* in, Val* fill_value)
     // expression as a use because it interferes with the
     // optimization::RemoveEmptyPass step.
     if (!optimization::isTVEmpty(in->as<TensorView>())) {
+      is_full_like = true;
       addInput(in);
     }
   }
   addInput(fill_value);
   addOutput(out);
-  addDataAttribute(in != nullptr);
+  addDataAttribute(is_full_like);
   addDataAttribute(number_of_dims_for_out_val);
 }
 
@@ -1154,16 +1156,19 @@ RNGOp::RNGOp(
     addInput(philox_seed);
     addInput(philox_offset);
   }
+  bool is_rand_like = false;
   if (in != nullptr) {
     NVF_ERROR(
         in->isA<TensorView>(),
         "Expected in Val to be a TensorView for rand_like operation.");
+    is_rand_like = true;
     addInput(in);
   }
   addOutput(out);
   RNGOp::Attributes attr{type, dtype, parameters.size()};
   addDataAttribute(attr);
   addAttribute(philox_index);
+  addDataAttribute(is_rand_like);
 }
 
 std::string RNGOp::toString(int indent_size) const {

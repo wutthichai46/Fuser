@@ -734,6 +734,10 @@ class RNGOp : public Expr {
     return attribute<Attributes>(0).num_parameters;
   }
 
+  bool isRandLikeOp() const {
+    return attribute<bool>(2);
+  }
+
   std::vector<Val*> getParameters() const {
     return {
         inputs().begin() + getOutputDims(),
@@ -757,6 +761,13 @@ class RNGOp : public Expr {
     auto offset_index = getOutputDims() + getNumParameters() + 1;
     return (inputs().size() > offset_index) ? inputs().at(offset_index)
                                             : nullptr;
+  }
+
+  TensorView* getInputTv() const {
+    if (!isRandLikeOp()) {
+      return nullptr;
+    }
+    return inputs().back()->as<TensorView>();
   }
 
   bool isDeterministic() const {
