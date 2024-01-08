@@ -59,6 +59,21 @@ class FullOp : public Expr {
   Val* getFillValue() const {
     return inputs().back();
   }
+
+  TensorView* inputTv() const {
+    if (!isFullLikeOp()) {
+      return nullptr;
+    }
+    return input(numDims())->as<TensorView>();
+  }
+
+  bool isFullLikeOp() const {
+    return attribute<bool>(0);
+  }
+
+  int64_t numDims() const {
+    return attribute<int64_t>(1);
+  }
 };
 
 class SelectOp : public Expr {

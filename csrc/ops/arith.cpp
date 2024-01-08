@@ -1246,7 +1246,7 @@ TensorView* maybeFullInsteadOfReduction(
       dtype = (dtype == DataType::Null ? tv->getDataType().value() : dtype);
       auto output = IrBuilder::create<TensorView>(td, dtype);
       init = maybeCastOp(dtype, init);
-      IrBuilder::create<FullOp>(output, init, tv);
+      IrBuilder::create<FullOp>(output, tv, init);
       return output;
     }
   }

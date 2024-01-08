@@ -22,6 +22,8 @@
 #include <transform_view.h>
 #include <type.h>
 
+#include <optimization/remove_empty.h>
+
 #include <c10/util/irange.h>
 
 #include <complex>
@@ -35,17 +37,29 @@ namespace nvfuser {
 
 FullOp::FullOp(IrBuilderPasskey passkey, Val* out, Val* in, Val* fill_value)
     : Expr(passkey) {
+  int64_t number_of_dims_for_out_val = 0;
   if (out->isA<TensorView>()) {
     auto tv_root = out->as<TensorView>()->getRootDomain();
+    number_of_dims_for_out_val = (int64_t)tv_root.size();
     for (auto id : tv_root) {
       addInput(id->extent());
     }
   }
-  if (in) {
-    addInput(in);
+  if (in != nullptr) {
+    NVF_ERROR(
+        in->isA<TensorView>(),
+        "Expected in Val to be a TensorView for full_like operation.");
+    // If the in TensorView contains any empty axes, avoid adding this
+    // expression as a use because it interferes with the
+    // optimization::RemoveEmptyPass step.
+    if (!optimization::isTVEmpty(in->as<TensorView>())) {
+      addInput(in);
+    }
   }
   addInput(fill_value);
   addOutput(out);
+  addDataAttribute(in != nullptr);
+  addDataAttribute(number_of_dims_for_out_val);
 }
 
 std::string FullOp::toString(int indent_size) const {
@@ -74,7 +88,7 @@ std::vector<PolymorphicValue> FullOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   std::vector<int64_t> shape;
-  for (auto i : c10::irange(inputs.size() - 1)) {
+  for (auto i : c10::irange(numDims())) {
     shape.push_back((int)inputs.at(i));
   }
   DataType dtype = getFillValue()->getDataType().value();
