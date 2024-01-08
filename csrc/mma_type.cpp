@@ -16,6 +16,38 @@ GemmTile getMmaOpShape(MmaMacro macro) {
   return {getM(macro), getN(macro), getK(macro)};
 }
 
+int64_t getBytesFromSwizzle(MmaInputSmemSwizzle swizzle) {
+  switch (swizzle) {
+    case MmaInputSmemSwizzle::None:
+      return 16;
+    case MmaInputSmemSwizzle::B32:
+      return 32;
+    case MmaInputSmemSwizzle::B64:
+      return 64;
+    case MmaInputSmemSwizzle::B128:
+      return 128;
+    default:
+      NVF_CHECK(false, "Unknown swizzle type!");
+      break;
+  }
+}
+
+MmaInputSmemSwizzle getSwizzleFromBytes(int64_t bytes) {
+  switch (bytes) {
+    case 16:
+      return MmaInputSmemSwizzle::None;
+    case 32:
+      return MmaInputSmemSwizzle::B32;
+    case 64:
+      return MmaInputSmemSwizzle::B64;
+    case 128:
+      return MmaInputSmemSwizzle::B128;
+    default:
+      NVF_CHECK(false, "Unknown swizzle size!");
+      break;
+  }
+}
+
 std::string toString(MmaLayout input_layout) {
   std::stringstream ss;
   switch (input_layout) {
@@ -73,6 +105,22 @@ std::string toString(MmaMacro macro) {
   }
   ss << "_" << underlying.m << "_" << underlying.n << "_" << underlying.k;
   return ss.str();
+}
+
+std::string toString(MmaInputSmemSwizzle swizzle) {
+  switch (swizzle) {
+    case MmaInputSmemSwizzle::None:
+      return "NoSwizzle";
+    case MmaInputSmemSwizzle::B32:
+      return "32B";
+    case MmaInputSmemSwizzle::B64:
+      return "64B";
+    case MmaInputSmemSwizzle::B128:
+      return "128B";
+    default:
+      NVF_CHECK(false, "Unknown tensor map swizzle type!");
+      break;
+  }
 }
 
 size_t hash(MmaMacro macro) {

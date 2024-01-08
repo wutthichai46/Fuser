@@ -184,7 +184,7 @@ void ValGraph::initializeVal(
     const VectorOfUniqueEntries<Expr*>& definitions,
     const VectorOfUniqueEntries<Expr*>& uses) {
   const ValGroup& val_disjoint_set =
-      disjointValSets().initializeSet(val).first->second;
+      disjoint_vals_.initializeSet(val).first->second;
 
   // For now, the definition of a val should be unique. Remove this
   // assertion as necessary
@@ -193,7 +193,7 @@ void ValGraph::initializeVal(
   ExprGroups def_groups;
   for (auto def : definitions) {
     const ExprGroup& expr_set =
-        disjointExprSets().initializeSet(def).first->second;
+        disjoint_exprs_.initializeSet(def).first->second;
     def_groups.pushBack(expr_set);
   }
   // TODO-NM: def_groups can be empty. Should it be still mapped?
@@ -205,7 +205,7 @@ void ValGraph::initializeVal(
   ExprGroups use_groups;
   for (auto use : uses) {
     const ExprGroup& expr_set =
-        disjointExprSets().initializeSet(use).first->second;
+        disjoint_exprs_.initializeSet(use).first->second;
     use_groups.pushBack(expr_set);
   }
   // TODO-NM: use_groups can be empty. Should it be still mapped?
@@ -256,27 +256,8 @@ bool ValGraph::exprsMap(Expr* first, Expr* second, bool forward) const {
 
   // Special handling for backprop of merge
   if (first->isA<Merge>() && !forward) {
-    // Can't back prop through merge without making sure one input actually
-    // matches. This can be done on a map or extent basis.
-    auto merge0 = first->as<Merge>();
-    auto merge1 = second->as<Merge>();
-
-    auto extent_0o = merge0->outer()->extent();
-    auto extent_0i = merge0->inner()->extent();
-    auto extent_1o = merge1->outer()->extent();
-    auto extent_1i = merge1->inner()->extent();
-
-    auto extent_o_match = extent_0o->sameAs(extent_1o) ||
-        (extent_0o->isConstInt() && extent_1o->isConstInt() &&
-         extent_0o->evaluate() == extent_1o->evaluate()) ||
-        disjointValSets().permissiveAreMapped(merge0->outer(), merge1->outer());
-
-    auto extent_i_match = extent_0i->sameAs(extent_1i) ||
-        (extent_0i->isConstInt() && extent_1i->isConstInt() &&
-         extent_0i->evaluate() == extent_1i->evaluate()) ||
-        disjointValSets().permissiveAreMapped(merge0->inner(), merge1->inner());
-
-    if (!(extent_o_match || extent_i_match)) {
+    if (!shouldMapMergeBackward<Val>(
+            first->as<Merge>(), second->as<Merge>(), this->disjointValSets())) {
       return false;
     }
   }
@@ -332,7 +313,7 @@ void ValGraph::mapVals(Val* val0, Val* val1) {
   // Map the iter domains together before we traverse across definitions and
   // uses. Traversing definitions and uses could use the new property of id0 and
   // id1 being mapped.
-  disjointValSets().mapEntries(val0, val1);
+  disjoint_vals_.mapEntries(val0, val1);
   auto new_val_group = toGroup(val0);
 
   unique_definitions_[new_val_group] = orig_defs0->computeUnion(*orig_defs1);
@@ -411,10 +392,12 @@ void ValGraph::mapExprs(Expr* expr0, Expr* expr1) {
     return;
   }
 
-  const ExprGroup& expr0_orig_group = toGroup(expr0);
-  const ExprGroup& expr1_orig_group = toGroup(expr1);
+  // Note that non-reference copies are required here as they may be
+  // removed by mapEntries
+  const ExprGroup expr0_orig_group = toGroup(expr0);
+  const ExprGroup expr1_orig_group = toGroup(expr1);
 
-  disjointExprSets().mapEntries(expr0, expr1);
+  disjoint_exprs_.mapEntries(expr0, expr1);
 
   const ExprGroup& expr_new_group = toGroup(expr0);
 
