@@ -2938,7 +2938,7 @@ class TestNvFuserFrontend(TestCase):
         self.assertEqual(nvf_out[0], t16)
         self.assertEqual(nvf_out[1], t16)  # T16 == T20
         self.assertEqual(nvf_out[2], t31)
-        
+
     def test_issue1279(self):
         inputs = [
             torch.randn(2, 1, 2, dtype=torch.float16, device="cuda:0"),
