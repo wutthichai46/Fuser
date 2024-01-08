@@ -164,7 +164,7 @@ TensorView* uniform(
   IrBuilder::create<RNGOp>(
       RNGOpType::UniformRange,
       out,
-      nullptr /* in */,
+      /*in=*/nullptr,
       dtype,
       std::vector<Val*>{low, high},
       philox_seed,
@@ -189,7 +189,7 @@ TensorView* normal(
   IrBuilder::create<RNGOp>(
       RNGOpType::NormalGeneral,
       out,
-      nullptr /* in */,
+      /*in=*/nullptr,
       dtype,
       std::vector<Val*>{mean, std},
       philox_seed,

@@ -162,7 +162,7 @@ void IndexLowering::handle(const RNGOp* rop) {
   auto lowered = IrBuilder::create<RNGOp>(
       rop->getRNGOpType(),
       out,
-      nullptr /* in */,
+      /*in=*/nullptr,
       rop->dtype(),
       rop->getParameters(),
       rop->getRNGSeedVal(),

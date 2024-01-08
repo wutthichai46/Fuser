@@ -1154,7 +1154,10 @@ RNGOp::RNGOp(
     addInput(philox_seed);
     addInput(philox_offset);
   }
-  if (in) {
+  if (in != nullptr) {
+    NVF_ERROR(
+        in->isA<TensorView>(),
+        "Expected in Val to be a TensorView for rand_like operation.");
     addInput(in);
   }
   addOutput(out);
