@@ -1106,6 +1106,25 @@ int64_t getVectorizeSize(const TensorView* tv) {
 
 } // namespace nvfuser::ir_utils
 
+namespace {
+void getAllocationDomainPermutation(
+    const std::vector<nvfuser::IterDomain*>& rfactor_domain,
+    const std::vector<nvfuser::IterDomain*>& allocation_domain,
+    nvfuser::MmaOp::AxesData& permutation) {
+  NVF_CHECK(
+      rfactor_domain.size() == allocation_domain.size(),
+      "Allocation domain should be the same size as root/r-factor domain");
+
+  permutation.clear();
+  for (auto in : allocation_domain) {
+    auto loc = std::find(rfactor_domain.begin(), rfactor_domain.end(), in);
+    auto pos = std::distance(rfactor_domain.begin(), loc);
+    permutation.push_back(pos);
+  }
+}
+
+} // namespace
+
 namespace nvfuser::MmaOpUtils {
 
 // A helper for gathering details about TensorView object
@@ -1129,7 +1148,54 @@ MmaLayout getInputLayout(
     const TensorViewDetails& in_b,
     const MmaOp::AxesData& m_axes,
     const MmaOp::AxesData& n_axes,
-    const MmaOp::AxesData& k_axes) {
+    const MmaOp::AxesData& k_axes,
+    const MmaOp::AxesData& in_a_alloc_permutation,
+    const MmaOp::AxesData& in_b_alloc_permutation) {
+  std::unordered_map<std::string, std::vector<MmaLayout>> mapAtoLayouts;
+  mapAtoLayouts["T"] = {MmaLayout::TN, MmaLayout::TT};
+  mapAtoLayouts["N"] = {MmaLayout::NN, MmaLayout::NT};
+
+  // // Get whether Matrix is T or N
+  std::string A_key = "N";
+  std::string B_key = "N";
+  if ((m_axes.front() < in_a.bcasts.front()) &&
+      (k_axes.front() < in_a.bcasts.front())) {
+    A_key = "T";
+  }
+
+  if ((in_b.bcasts.front() < k_axes.front()) &&
+      (in_b.bcasts.front() < n_axes.front())) {
+    B_key = "T";
+  }
+
+  // Shape:
+  // A = [M, K, b]
+  // B = [b, K, N]
+  // C = [M, r, N] (root domain)
+  if ((m_axes.front() < k_axes.front())) {
+    A_key = "T";
+  } else if (k_axes.front() < m_axes.front()) {
+    A_key = "N";
+  }
+
+  if ((k_axes.front() < n_axes.front())) {
+    B_key = "T";
+  } else if (k_axes.front() > n_axes.front()) {
+    B_key = "N";
+  }
+
+  // Alloc domain:
+  // {B, K}
+  if(!in_b_alloc_permutation.empty()){
+    if(in_b_alloc_permutation.at(k_axes.front()) == n_axes.front()){
+      B_key = (B_key == "T") ? "N" : "T";
+    }
+  }
+
+  const int B_offset = B_key == "N" ? 0 : 1;
+  return mapAtoLayouts[A_key].at(B_offset);
+
+  /*
   // TT layout (b - broadcast, r - reduction):
   // A = [M, K, b]
   // B = [b, K, N]
@@ -1138,6 +1204,7 @@ MmaLayout getInputLayout(
       (k_axes.front() < in_a.bcasts.front()) &&
       (in_b.bcasts.front() < k_axes.front()) &&
       (in_b.bcasts.front() < n_axes.front())) {
+    std::cout << "gets TT " << std::endl;
     return MmaLayout::TT;
   }
   // TN layout (b - broadcast, r - reduction):
@@ -1148,6 +1215,7 @@ MmaLayout getInputLayout(
       (in_a.bcasts.front() < k_axes.front()) &&
       (in_b.bcasts.front() < n_axes.front()) &&
       (in_b.bcasts.front() < k_axes.front())) {
+    std::cout << "gets TN " << std::endl;
     return MmaLayout::TN;
   }
   // NT layout (b - broadcast, r - reduction):
@@ -1171,14 +1239,15 @@ MmaLayout getInputLayout(
   }
 
   NVF_ERROR(false, "Unsupported input layout");
+  */
 }
 
 MmaOpDetails getMmaOpDetails(
     TensorView* out,
     TensorView* in_a,
     TensorView* in_b) {
-  const auto in_a_details = getDetailsFor(in_a->getMaybeRFactorDomain());
-  const auto in_b_details = getDetailsFor(in_b->getMaybeRFactorDomain());
+  const auto in_a_details = getDetailsFor(in_a->getMaybeAllocationDomain());
+  const auto in_b_details = getDetailsFor(in_b->getMaybeAllocationDomain());
   const auto out_details = getDetailsFor(out->getRootDomain());
 
   using AxesData = MmaOp::AxesData;
@@ -1303,6 +1372,53 @@ MmaOpDetails getMmaOpDetails(
       !details.k_axes.empty(),
       "MmaOp inputs must define at least a single K dimension");
 
+  AxesData a_alloc_permutation;
+  AxesData b_alloc_permutation;
+  if (!in_a->domain()->allocation().empty()) {
+    getAllocationDomainPermutation(
+        in_a->getMaybeRFactorDomain(),
+        in_a->getAllocationDomain(),
+        a_alloc_permutation);
+  }
+  if (!in_b->domain()->allocation().empty()) {
+    getAllocationDomainPermutation(
+        in_b->getMaybeRFactorDomain(),
+        in_b->getAllocationDomain(),
+        b_alloc_permutation);
+  }
+
+  // if (!in_b->domain()->allocation().empty()) {
+  //   std::cout << "B has an allocation domain: " << std::endl;
+  //   for (auto x : in_b->domain()->allocation()) {
+  //     std::cout << x->toString() << std::endl;
+  //   }
+  //   std::cout << " B is: " << std::endl;
+  //   for (auto x : in_b->getMaybeRFactorDomain()) {
+  //     std::cout << x->toString() << std::endl;
+  //   }
+  // }
+
+  // if (!in_b->domain()->allocation().empty()) {
+  //   NVF_CHECK(
+  //       in_b->getAllocationDomain().size() ==
+  //           in_b->getMaybeRFactorDomain().size(),
+  //       "Allocation domain should be the same size as root/r-factor domain");
+
+  //   AxesData alloc_permutation;
+  //   for (auto in : in_b->getAllocationDomain()) {
+  //     auto loc = std::find(
+  //         in_b->getMaybeRFactorDomain().begin(),
+  //         in_b->getMaybeRFactorDomain().end(),
+  //         in);
+  //     auto pos = std::distance(in_b->getMaybeRFactorDomain().begin(), loc);
+  //     alloc_permutation.push_back(pos);
+  //   }
+  //   std::cout << "permutation vector " << std::endl;
+  //   for (auto x : alloc_permutation) {
+  //     std::cout << x << std::endl;
+  //   }
+  // }
+
   // TODO: for tensor contraction / split-k uses of MmaOp different input layout
   // rules may be needed
   details.input_layout = getInputLayout(
@@ -1310,7 +1426,9 @@ MmaOpDetails getMmaOpDetails(
       in_b_details,
       details.m_axes,
       details.n_axes,
-      details.k_axes);
+      details.k_axes,
+      a_alloc_permutation,
+      b_alloc_permutation);
 
   return details;
 }

@@ -106,6 +106,26 @@ TensorView* _matmul_tt(TensorView* a, TensorView* b) {
   return tv2;
 }
 
+TensorView* matmul(TensorView* a, TensorView* b) {
+  std::cout << "size of b's alloc domain: " << std::endl;
+  std::cout << b->domain()->allocation().size() << std::endl;
+  NVF_CHECK(a->nDims() == b->nDims());
+  NVF_CHECK(a->nDims() == 2 || a->nDims() == 3);
+
+  TensorView *tv0b, *tv1b, *tv2;
+
+  std::vector<bool> bcast_dims(a->nDims() + 1, false);
+  bcast_dims.at(bcast_dims.size() - 1) = true;
+  tv0b = broadcast(a, bcast_dims);
+  bcast_dims.at(bcast_dims.size() - 1) = false;
+  bcast_dims.at(bcast_dims.size() - 3) = true;
+  tv1b = broadcast(b, bcast_dims);
+  tv1b->setAllocationDomain({tv1b->axis(0), tv1b->axis(2), tv1b->axis(1)}, true);
+
+  tv2 = fusedMultiplySum(tv0b, tv1b, {1});
+  return tv2;
+}
+
 LstmResult lstm(
     TensorView* prev_cell,
     TensorView* in_x,

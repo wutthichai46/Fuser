@@ -842,6 +842,15 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   } else {
     bcr = bcw_smem->cacheAfter(LoadStoreOpType::LdMatrix);
   }
+  if (mma_layout == MmaLayout::TT){
+    std::cout << "TT " << std::endl;
+  }
+  if (mma_layout == MmaLayout::NN){
+    std::cout << "NN " << std::endl;
+  }
+  if (mma_layout == MmaLayout::NT){
+    std::cout << "NT " << std::endl;
+  }
 
   // For Turing and Ampere, the layout of the MmaOp is always TN
   NVF_ERROR(

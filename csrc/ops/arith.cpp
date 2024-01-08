@@ -2563,6 +2563,10 @@ TensorView* fusedMultiplySum(
     init = IrBuilder::create<Val>(0.0);
   }
 
+  std::cout << "in fused multiply sum " << std::endl;
+
+  std::cout << "size of b's alloc domain: "<< std::endl;
+  std::cout << tv_b->domain()->allocation().size() << std::endl;
   // TODO:
   //  We will want to support initialize and rfactor with
   //  mma as well, for maybe fusing bias in prolog.
