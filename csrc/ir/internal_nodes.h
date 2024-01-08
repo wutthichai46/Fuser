@@ -751,14 +751,15 @@ class RNGOp : public Expr {
   Val* getRNGSeedVal() const {
     // Note that inputs() consists of:
     // output dims | parameters | philox seed | philox_offset
-    auto seed_index = getOutputDims() + getNumParameters();
+    auto seed_index = getOutputDims() + getNumParameters() + isRandLikeOp();
     return (inputs().size() > seed_index) ? inputs().at(seed_index) : nullptr;
   }
 
   Val* getRNGOffsetVal() const {
     // Note that inputs() consists of:
     // output dims | parameters | philox seed | philox_offset
-    auto offset_index = getOutputDims() + getNumParameters() + 1;
+    auto offset_index =
+        getOutputDims() + getNumParameters() + isRandLikeOp() + 1;
     return (inputs().size() > offset_index) ? inputs().at(offset_index)
                                             : nullptr;
   }
@@ -771,7 +772,8 @@ class RNGOp : public Expr {
   }
 
   bool isDeterministic() const {
-    return inputs().size() == getOutputDims() + getNumParameters() + 2;
+    return inputs().size() ==
+        getOutputDims() + getNumParameters() + isRandLikeOp() + 2;
   }
 
   void setSeedAndOffset(Val* seed, Val* offset) {

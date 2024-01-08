@@ -1149,13 +1149,6 @@ RNGOp::RNGOp(
   for (auto v : parameters) {
     addInput(v);
   }
-  if (philox_seed || philox_offset) {
-    NVF_CHECK(
-        philox_seed && philox_offset,
-        "If either philox_seed or philox_offset is provided, the other must be also");
-    addInput(philox_seed);
-    addInput(philox_offset);
-  }
   bool is_rand_like = false;
   if (in != nullptr) {
     NVF_ERROR(
@@ -1163,6 +1156,13 @@ RNGOp::RNGOp(
         "Expected in Val to be a TensorView for rand_like operation.");
     is_rand_like = true;
     addInput(in);
+  }
+  if (philox_seed || philox_offset) {
+    NVF_CHECK(
+        philox_seed && philox_offset,
+        "If either philox_seed or philox_offset is provided, the other must be also");
+    addInput(philox_seed);
+    addInput(philox_offset);
   }
   addOutput(out);
   RNGOp::Attributes attr{type, dtype, parameters.size()};
