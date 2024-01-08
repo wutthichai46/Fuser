@@ -383,11 +383,15 @@ class LogParserPyTest(LogParser):
     def compile_regex(self):
         super().compile_regex()
 
+        self.itemlist_re = re.compile(r"Running \d+ items in this shard: (.*)$")
+
+        self.wildcard_testname_re = re.compile(r"^(?P<testname>\S+::\S+) (?P<line>.*)$")
+
         self.all_test_names: list[str] | None = None
 
     def parse_line(self, line):
         if self.all_test_names is None:
-            m = re.match(r"Running \d+ items in this shard: (.*)$", line)
+            m = re.match(self.itemlist_re, line)
             if m is not None:
                 # grab the test list
                 self.all_test_names = m.groups()[0].split(", ")
@@ -409,6 +413,14 @@ class LogParserPyTest(LogParser):
                     line = testrest[1]
                 else:
                     return True
+        else:
+            # Less reliable: match any line having at least one double colon
+            # and interpret that as test name
+            m = re.match(self.wildcard_testname_re, line)
+            if m is not None:
+                d = m.groupdict()
+                self.current_test = d["testname"]
+                line = d["line"]
 
         if line == "PASSED":
             self.finalize_test(True)
@@ -729,11 +741,14 @@ class TestDifferences:
 
             compiled_test2 = self.run2.kernel_map[testname]
 
-            if len(compiled_test1.kernels) != len(compiled_test2.kernels):
+            test1_kernel_count = len(compiled_test1.kernels)
+            test2_kernel_count = len(compiled_test2.kernels)
+            minimum_kernel_count = min(test1_kernel_count, test2_kernel_count)
+            if test1_kernel_count != test2_kernel_count:
                 print(
-                    f"WARNING: Test {testname} has different number of kernels "
-                    f"in {self.run1.directory} than in {self.run2.directory}. "
-                    "Not showing diffs for this test.",
+                    f"WARNING: Test {testname} has {test1_kernel_count} kernels "
+                    f"in {self.run1.directory} and {test2_kernel_count} kernels in {self.run2.directory}. "
+                    f"Only showing diffs for the first {minimum_kernel_count} kernels in this test.",
                     file=sys.stderr,
                 )
                 self.test_diffs.append(
@@ -746,7 +761,7 @@ class TestDifferences:
                 )
 
             kernel_diffs = []
-            for kernel_num in range(len(compiled_test1.kernels)):
+            for kernel_num in range(minimum_kernel_count):
                 kern1 = self.run1.get_kernel(testname, kernel_num, strip_preamble=True)
                 kern2 = self.run2.get_kernel(testname, kernel_num, strip_preamble=True)
                 assert kern1.code is not None

@@ -46,6 +46,17 @@ class ValGraph;
 // IdMappingMode::EXACT
 //   Don't map any broadcast axes to non-broadcast axes
 //   Do not forward through any broadcast IDs
+// IdMappingMode::PERMISSIVE
+//   Forward broadcast axes in replay
+//   Map all iteration domains
+//   Always contain root mappings (otherwise they could have been forwarded in
+//   broadcast)
+// IdMappingMode::AlmostExact
+//   Forward through broadcast axes, but not through to a non-broadcast axis
+//     i.e. id{b1*i0}, id{i0} are mapped
+//          id{i1*i0}, id{i0} are not mapped (this part is the difference from
+//          PERMISSIVE)
+//   Forward through split one axes, i.e. id{ceilDiv(i0, 1)}, id{i0} are mapped
 //
 class IdModel : public PolymorphicBase {
  public:
@@ -57,7 +68,13 @@ class IdModel : public PolymorphicBase {
   // Same as the above constructor with fusion->exprs() excpet fusion may have
   // some dangling inputs/outputs that are expected to have IterDomain entries
   // even though there's no possible connections from them.
-  IdModel(Fusion* fusion, bool allow_self_mapping = false);
+  //
+  // The validate parameter is a temporary option during the
+  // transition from the current ComputeAtMap.
+  IdModel(
+      Fusion* fusion,
+      bool allow_self_mapping = false,
+      bool validate = false);
 
   // Returns iter domain graph of provided mode.
   const ValGraph& idGraph(IdMappingMode mode) const;
@@ -86,7 +103,8 @@ class IdModel : public PolymorphicBase {
   // the Fusion that don't have expressions associated with them.
   void build(
       const std::vector<Expr*>& exprs,
-      const std::vector<TensorView*>& additional_tvs);
+      const std::vector<TensorView*>& additional_tvs,
+      bool validate = false);
 
   // ======= START Iteration domain build process in order called =======
 
@@ -102,6 +120,15 @@ class IdModel : public PolymorphicBase {
   // Fills disjoint_ids_[IdMappingMode::EXACT] for relationships between inputs
   // and first output of expr
   void buildExactGraph(const std::vector<Expr*>& exprs);
+
+  // Fills disjoint_ids_[IdMappingMode::ALMOSTEXACT]. Initialize AlmostExact as
+  // Exact entries, then map anything that's either merged with a size-1 or
+  // split by a size-1 dimension.
+  void buildAlmostExactMap();
+
+  // Fills disjoint_ids_[IdMappingMode::PERMISSIVE]. Initialize it as
+  // Exact entries, then map through broadcasts
+  void buildPermissiveMap(const std::vector<Expr*>& exprs);
 
   // Errors if self mapping occurs
   void assertNoSelfMapping();

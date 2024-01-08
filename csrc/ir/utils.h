@@ -172,6 +172,10 @@ std::vector<int> normalizeOld2New(
 //! Warning: Creates new Expr defining substitute.
 Expr* replaceValInExprInputs(Expr* expr, Val* reference, Val* substitute);
 
+//! Replace old_val with new_val in all active uses as well as in fusion
+//! outputs.
+void replaceValInAllExprInputsAndFusionOutputs(Val* old_val, Val* new_val);
+
 //! Removes the given expression and creates a new expression that is identical
 //! to expr, but whose outputs are given by the new_outputs argument. It is an
 //! error for Vals in new_outputs that are not equal to their old equivalents to
@@ -534,7 +538,7 @@ std::vector<Expr*> getAllTypesOfReductionOps(Fusion* fusion);
 //! Returns true if fusion has any reduction ops.
 bool hasAnyReductionOps(Fusion* fusion);
 
-int64_t getVectorizeSize(TensorView* tv);
+int64_t getVectorizeSize(const TensorView* tv);
 
 // Returns the permutation from `in` to `out`, i.e., `out[i]==in[perm[i]]`. If
 // `out` is not a permutation of `in`, returns nullopt.
