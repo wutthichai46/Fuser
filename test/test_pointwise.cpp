@@ -176,4 +176,24 @@ TEST_F(PointwiseTest, VectorizeStrideContiguitySelfOverlapping) {
   }
 }
 
+TEST_F(PointwiseTest, Broadcast) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in0 = makeContigConcreteTensor({-1, -1, -1, -1});
+  TensorView* in1 = makeContigConcreteTensor({-1, -1});
+  TensorView* out = add(in0, in1);
+
+  fusion->addInput(in0);
+  fusion->addInput(in1);
+  fusion->addOutput(out);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in0_tensor = at::rand({32, 32, 4096, 128}).cuda();
+  at::Tensor in1_tensor = at::rand({4096, 128}).cuda();
+  at::Tensor out_tensor = fec.runFusionWithInputs({in0_tensor, in1_tensor})[0];
+
+  testValidate(fec.fusion(), {out_tensor}, {in0_tensor, in1_tensor}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
