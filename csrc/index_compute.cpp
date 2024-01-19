@@ -3253,22 +3253,38 @@ Val* Index::cpAsyncBulkIndex(
 
   bool is_load = (gmem_tv != consumer);
 
+  // NOTE:
+  //  global_address,    <--- gmem_tv metadata
+  //  global_dim,        <--- gmem_tv metadata, alloc_size
+  //  global_strides,    <--- gmem_tv metadata, alloc_strides
+  //  box_dim,           <--- consumer metadata, extends for bulk ids
+  //  element_strides,   <--- consumer metadata, alloc_strides for bulk id
+
   NVF_ERROR(
       gmem_tv->getMemoryType() == MemoryType::Global,
       "cpAsyncBulkIndex is only for global memory tensors");
-  NVF_ERROR(
-      gmem_tv->getMaybeRFactorDomain() == gmem_tv->getLeafDomain(),
-      "not supported yet");
-  NVF_ERROR(
-      gmem_tv->getMaybeAllocationDomain() == gmem_tv->getLeafDomain(),
-      "not supported yet");
-  for (auto id : consumer->getMaybeRFactorDomain()) {
+
+  std::vector<IterDomain*> consumer_bulk_ids;
+  {
+    const auto consumer_leaves = consumer->getLeafDomain();
+    for (auto id : consumer_leaves) {
+      if (id->isBulk()) {
+        consumer_bulk_ids.push_back(id);
+      }
+    }
     NVF_ERROR(
-        id->isBulk(),
-        "cpAsyncBulkIndex only support whole tensor copy for now.");
+        !consumer_bulk_ids.empty(),
+        "consumer must have at least one bulk IterDomain")
+    NVF_ERROR(
+        gmem_tv->getMaybeAllocationDomain().size() == consumer_bulk_ids.size(),
+        "number of bulk leaf IterDomains in the consumer (",
+        consumer_bulk_ids.size(),
+        ") must be the same as the number of allocation domains in the producer (",
+        gmem_tv->getMaybeAllocationDomain().size(),
+        ")");
   }
 
-  int64_t dim = (int64_t)gmem_tv->nDims();
+  int64_t dim = (int64_t)consumer_bulk_ids.size();
   NVF_ERROR(dim > 0);
   int64_t itemsize = dataTypeSize(gmem_tv->dtype());
 
@@ -3296,12 +3312,22 @@ Val* Index::cpAsyncBulkIndex(
         std::vector<int64_t>{},
         ArrayType{std::make_shared<DataType>(DataType::Index), 0});
   }
-  auto box_dim =
-      // Reverse array to convert from row major to column major
-      IrBuilder::reverseArrayExpr(
-          IrBuilder::getAttrExpr(metadata, "alloc_size"));
+
+  // Reverse array to convert from row major to column major
+  auto box_dim = IrBuilder::reverseArrayExpr(
+      IrBuilder::arrayExpr<Val*>([&consumer_bulk_ids]() {
+        std::vector<Val*> extents;
+        for (auto item : consumer_bulk_ids) {
+          extents.push_back(item->extent());
+        }
+        return extents;
+      }()));
+
+  // Element strides are set to '1', see:
+  // https://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__TENSOR__MEMORY.html
   auto element_strides =
       IrBuilder::arrayExpr(std::vector<Val*>(dim, gmem_tv->fusion()->oneVal()));
+
   auto descriptor = encodeTensorMapTiled(
       gmem_tv->dtype(),
       global_address,
@@ -3314,8 +3340,66 @@ Val* Index::cpAsyncBulkIndex(
       TensorMapL2Promotion::NoL2Promotion,
       TensorMapFloatOOBFill::NoOOBFill);
 
-  auto coordinate = IrBuilder::arrayExpr(
-      std::vector<Val*>(dim, gmem_tv->fusion()->zeroVal()));
+  // TODO: find pairs of consumer leaves (bulk and non-bulk) and calculate this
+  // way coordinates, e.g. 1d
+  //  gmem_tv := [M]
+  //  gmem_tv.split(0, bulk_size) -> [M/bulk_size, bulk_size]
+  //
+  // we need to:
+  //  - find loop bound to 'M/bulk_size' IterDomain,
+  //  - for found loop we pick its iterator (i)
+  //  - create coordinate, where for each dim we have new Val, a result of (i) *
+  //  bulk_size->extent()
+  std::vector<kir::ForLoop*> coord_loops;
+  {
+    for (auto loop : loops) {
+      if (!loop->iter_domain()->isBulk()) {
+        coord_loops.push_back(loop);
+      }
+    }
+
+    // test_memory.cpp bulk test cases don't have non-bulk loops
+    NVF_ERROR(
+        (int64_t)coord_loops.size() == dim || coord_loops.empty(),
+        "the size of the list of loops to use for coordinates (",
+        coord_loops.size(),
+        ") must be equal to the number of bulk leaf Iterdomains (",
+        dim,
+        ") or must be empty");
+
+    if (!coord_loops.empty()) {
+      NVF_ERROR(
+          coord_loops.size() == 1,
+          "More than a single loop with bulk Iterdomain is currently not supported. Got ",
+          coord_loops.size(),
+          " loops with bulk IterDomains");
+    }
+  }
+
+  // TODO: check if we need to find pairs of consumer leaves
+  //  (bulk and non-bulk) and calculate coordinates, e.g. 1d
+  //   gmem_tv := [M]
+  //   gmem_tv.split(0, bulk_size) -> [M/bulk_size, bulk_size]
+  //
+  //  we want need to:
+  //   - find loop bound to 'M/bulk_size' IterDomain,
+  //   - for found loop we pick its iterator (i)
+  //   - create coordinate, where for each dim we have new Val, a result of
+  //     (i) * bulk_size->extent()
+  auto coordinate = [&coord_loops, &dim, &gmem_tv, &consumer_bulk_ids]() {
+    if (coord_loops.empty()) {
+      return IrBuilder::arrayExpr(
+          std::vector<Val*>(dim, gmem_tv->fusion()->zeroVal()));
+    } else {
+      std::vector<Val*> coords_dim;
+      // TODO: reverse it?
+      for (auto loop : coord_loops) {
+        coords_dim.push_back(IrBuilder::mulExpr(
+            loop->index(), consumer_bulk_ids.front()->extent()));
+      }
+      return IrBuilder::arrayExpr(coords_dim);
+    }
+  }();
 
   Val* index = nullptr;
 
@@ -3335,9 +3419,7 @@ Val* Index::cpAsyncBulkIndex(
          {"coordinate", coordinate}},
         ss.str());
   }
-
   index = GpuLower::current()->commonScalarMap().hoistScalar(index, loops);
-
   return IrBuilder::create<kir::TensorIndex>(gmem_tv, index);
 }
 
