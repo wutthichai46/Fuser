@@ -20,7 +20,7 @@ with FusionDefinition() as fd:
     nvfuser_fusion_id64(fd)
 
 
-T0 = torch.randn((36,), dtype=torch.float64, device="cuda:0").as_strided(
+T0 = torch.ones((36,), dtype=torch.float64, device="cuda:0").as_strided(
     (2, 2, 9), (18, 9, 1)
 )
 T9 = T0.view(1, 2, 2, 1, 3, 3)
