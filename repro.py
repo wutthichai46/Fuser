@@ -7,11 +7,9 @@ def nvfuser_fusion_id64(fd: FusionDefinition) -> None:
         shape=[-1, -1, -1],
         contiguity=[True, True, True],
         dtype=DataType.Double,
-        is_cpu=False,
-        stride_order=[2, 1, 0],
     )
     T9 = fd.ops.reshape(T0, new_shape=[1, 2, 2, 1, 3, 3])
-    T10 = fd.ops.sum(T9, axes=[0, 2, 3, 4], keepdim=False, dtype=DataType.Null)
+    T10 = fd.ops.sum(T9, axes=[0, 2, 3, 4], keepdim=False, dtype=DataType.Double)
     fd.add_output(T10)
 
 
