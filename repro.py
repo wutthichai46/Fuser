@@ -19,9 +19,7 @@ with FusionDefinition() as fd:
     nvfuser_fusion_id64(fd)
 
 
-T0 = torch.ones((36,), dtype=torch.float64, device="cuda:0").as_strided(
-    (2, 2, 9), (18, 9, 1)
-)
+T0 = torch.ones(2, 2, 9, dtype=torch.float64, device="cuda:0")
 T9 = T0.view(1, 2, 2, 1, 3, 3)
 T10 = T9.sum([0, 2, 3, 4])
 print(T10)
