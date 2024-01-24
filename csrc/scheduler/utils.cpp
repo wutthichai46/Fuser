@@ -437,10 +437,9 @@ class PersistentBufferResolution : public IterVisitor {
       resolution_points_.insert(
           resolution_points_.end(), out_tvs.begin(), out_tvs.end());
 
-      // Outputs are still on reduction path and persistent path
+      // Outputs are still on reduction path
       for (auto out : expr->outputs()) {
         on_reduction_path_.emplace(out);
-        on_persitent_buffer_path_.emplace(out);
       }
     } else if (input_on_reduction_path) {
       // Propagate forward the reduction path
