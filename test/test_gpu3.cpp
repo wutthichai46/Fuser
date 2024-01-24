@@ -8716,6 +8716,57 @@ TEST_F(NVFuserTest, Reduction3DConstantIterationDomain) {
       executor_cache.fusion(), cg_outputs, inputs, {ref}, __LINE__, __FILE__);
 }
 
+TEST_F(NVFuserTest, PersistentBufferResolutionPoints) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  const int batch_size = 128;
+  const int hidden_size = 10240;
+  DataType input_dtype = DataType::Half;
+  auto tv0 = makeContigTensor(2, input_dtype);
+  fusion->addInput(tv0);
+  auto tv1 = castOp(DataType::Float, tv0);
+  auto tv2 = sum(tv1, {1});
+  auto tv3 = broadcast(tv2, {false, true});
+  auto tv4 = div(tv1, tv3);
+  auto tv5 = mul(tv1, tv4);
+  fusion->addOutput(tv5);
+
+  auto options = at::TensorOptions()
+                     .dtype(data_type_to_aten(input_dtype))
+                     .device(at::kCUDA, 0);
+  auto t0 = at::randn({batch_size, hidden_size}, options);
+  std::vector<c10::IValue> inputs{t0};
+
+  auto persistent_params = getInnerPersistentHeuristics(fusion, inputs);
+  NVF_CHECK(persistent_params, "Reduction schedule was not generated!");
+  NVF_CHECK(
+      persistent_params->project_persistent_buffers,
+      "Should project persistent buffers to inputs!");
+  scheduleInnerPersistentKernel(fusion, *persistent_params);
+
+  // The persistent buffer in this fusion is tv1.
+  // The reduction patch is 2 -> 3 -> 4 -> 5.
+  // There are two persistent paths: 1 -> 4 and 1 -> 5.
+  // There are two resolution points: 4 and 5.
+  // Following the projection onto inputs, tv0 becomes the updated persistent
+  // buffer. tv1, utilized by both tv4 and tv5, requires recomputation. If not
+  // recomputed, tv1 remains a persistent buffer as it cannot be inlined with
+  // either tv4 or tv5.
+  // There should be only 1 consumer of tv1 after the uses by tv4 and tv5 are
+  // recomputed.
+  // TODO: tv4 and tv5 are inlined with tvs's recomputation. Just needs 1
+  // recomputation of tv1 instead of 2.
+  auto all_consumer_tvs = ir_utils::consumerValsOf(tv1);
+  NVF_CHECK(
+      all_consumer_tvs.size() == 1,
+      "Expect 1 consumer, Got: ",
+      all_consumer_tvs.size());
+  FusionExecutor fe;
+  fe.compileFusion(fusion, inputs, persistent_params->lparams);
+  auto cg_outputs = fe.runFusion(inputs, persistent_params->lparams);
+}
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser

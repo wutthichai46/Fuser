@@ -427,18 +427,17 @@ class PersistentBufferResolution : public IterVisitor {
 
     bool input_on_persistent_buffer_path =
         input_on_persitent_buffer_path_it != expr->inputs().end();
-
     if (input_on_reduction_path && input_on_persistent_buffer_path) {
       // Expression has inputs on both a reduction and persistent buffer path,
       // this is a resolution.
       auto out_tvs = ir_utils::filterByType<TensorView>(expr->outputs());
-
       // Add resolution point
       resolution_points_.insert(
           resolution_points_.end(), out_tvs.begin(), out_tvs.end());
 
-      // Outputs are still on a persistent path
+      // Outputs are still on reduction path and persistent path
       for (auto out : expr->outputs()) {
+        on_reduction_path_.emplace(out);
         on_persitent_buffer_path_.emplace(out);
       }
     } else if (input_on_reduction_path) {
@@ -585,6 +584,8 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
       }
 
       if (!consumer_mappable) {
+        std::cout << "Unmappable dims from producer: " << producer
+                  << " to consumer: " << consumer << std::endl;
         unmappable_consumers.emplace_back(consumer);
       }
     }
