@@ -194,6 +194,14 @@ class GpuLower : public NonCopyable {
     return ldst_mbarrier_map_;
   }
 
+  std::unordered_map<const Expr*, TensorView*>& tokenMBarrierMap() {
+    return token_mbarrier_map_;
+  }
+
+  const std::unordered_map<const Expr*, TensorView*>& tokenMBarrierMap() const {
+    return token_mbarrier_map_;
+  }
+
   bool isNvFuserZeroEnabled() {
     if (isOptionDisabled(DisableOption::MagicZero)) {
       return false;
@@ -284,6 +292,10 @@ class GpuLower : public NonCopyable {
 
   // keep track of the mbarrier used for each load/store operation
   std::unordered_map<const Expr*, TensorView*> ldst_mbarrier_map_;
+
+  // Keep track of placeholders for tokens returned by arrive/expected tx
+  // mbarrier operations
+  std::unordered_map<const Expr*, TensorView*> token_mbarrier_map_;
 
   Fusion* fusion_ = nullptr;
 };

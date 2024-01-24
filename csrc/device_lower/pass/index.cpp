@@ -1414,15 +1414,22 @@ void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
   auto mbarrier_index = lower_utils::u32IndexScalarSmemTv(mbarrier);
 
   // arrive and expect_tx mbarrier
-  auto state = IrBuilder::create<Val>(DataType::UInt);
-  pushBack(IrBuilder::create<kir::Allocate>(
-      state, MemoryType::Local, ldst->container()->oneVal()));
+  Val* state = nullptr;
   Val* expect_bytes = IrBuilder::create<Val>(dataTypeSize(in_tv->dtype()));
   for (auto id : in_tv->getLeafDomain()) {
     expect_bytes = SimplifyingIrBuilder::mulExpr(expect_bytes, id->extent());
   }
   expect_bytes =
       SimplifyingIrBuilder::maybeCastExpr(DataType::UInt32, expect_bytes);
+  // set proper placeholder for MBarrierArriveExpectTx token
+  if (GpuLower::current()->tokenMBarrierMap().count(ldst)) {
+    auto mbarrier_tokens = GpuLower::current()->ldstMBarrierMap().at(ldst);
+    state = lower_utils::u32IndexScalarSmemTv(mbarrier_tokens);
+  } else {
+    state = IrBuilder::create<Val>(DataType::UInt);
+    pushBack(IrBuilder::create<kir::Allocate>(
+        state, MemoryType::Local, ldst->container()->oneVal()));
+  }
   pushBack(IrBuilder::create<kir::MBarrierArriveExpectTx>(
       state, mbarrier_index, expect_bytes));
 
