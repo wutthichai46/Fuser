@@ -1423,8 +1423,9 @@ void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
       SimplifyingIrBuilder::maybeCastExpr(DataType::UInt32, expect_bytes);
   // set proper placeholder for MBarrierArriveExpectTx token
   if (GpuLower::current()->tokenMBarrierMap().count(ldst)) {
-    auto mbarrier_tokens = GpuLower::current()->ldstMBarrierMap().at(ldst);
-    state = lower_utils::u32IndexScalarSmemTv(mbarrier_tokens);
+    auto mbarrier_tokens = GpuLower::current()->tokenMBarrierMap().at(ldst);
+    state = IrBuilder::create<kir::TensorIndex>(
+        mbarrier_tokens, GpuLower::current()->kernel()->zeroVal());
   } else {
     state = IrBuilder::create<Val>(DataType::UInt);
     pushBack(IrBuilder::create<kir::Allocate>(

@@ -409,13 +409,6 @@ class TensorView : public Val {
     return circular_buffer_stage_;
   }
 
-  void setMBarrierPlaceholder(bool state) {
-    is_mbarrier_placeholder_ = state;
-  }
-  bool isMBarrierPlaceholder() const {
-    return is_mbarrier_placeholder_;
-  }
-
   //! Transforms the innermost iterdomains according to the given mma swizzle,
   //!  this should be used on the tvs that are either inputs/outputs of an
   //!  MmaOp, or any tv's that are involved in prolog/epilog fusions and need to
@@ -579,7 +572,6 @@ class TensorView : public Val {
   unsigned int max_producer_pos_ = 0;
   MemoryType memory_type_ = MemoryType::Local;
   bool is_double_buffered_ = false;
-  bool is_mbarrier_placeholder_ = false;
 
   //! Indicates if the tensor is circular buffered.
   bool is_circular_buffered_ = false;

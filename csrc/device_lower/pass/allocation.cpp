@@ -575,7 +575,6 @@ class AllocationInserter : public kir::ExprMutator {
                 .contiguity(true)
                 .build();
         mbarrier->setMemoryType(MemoryType::Shared);
-        mbarrier->setMBarrierPlaceholder(true);
 
         kir::Allocate* mbarrier_alloc =
             IrBuilder::create<kir::Allocate>(mbarrier, MemoryType::Shared);
@@ -604,7 +603,14 @@ class AllocationInserter : public kir::ExprMutator {
         registerInsertBefore(expr, mbarrier_init, expr_scope);
         registerInsertAfter(expr, mbarrier_inval, expr_scope);
         GpuLower::current()->ldstMBarrierMap()[expr] = mbarrier;
+
         GpuLower::current()->tokenMBarrierMap()[expr] = mbarrier_tokens;
+        // Resgiter tokens placeholder for MBarrierInit and MBarrierInvalidate,
+        //  needed to manage life time of smem buffor in alias memory
+        GpuLower::current()->tokenMBarrierMap()[mbarrier_init] =
+            mbarrier_tokens;
+        GpuLower::current()->tokenMBarrierMap()[mbarrier_inval] =
+            mbarrier_tokens;
       } else {
         TensorView* mbarrier = TensorViewBuilder()
                                    .shape(std::vector<int64_t>{})
@@ -612,7 +618,6 @@ class AllocationInserter : public kir::ExprMutator {
                                    .contiguity(true)
                                    .build();
         mbarrier->setMemoryType(MemoryType::Shared);
-        mbarrier->setMBarrierPlaceholder(true);
         auto mbarrier_init = IrBuilder::create<kir::MBarrierInit>(
             mbarrier, expr->container()->oneVal(DataType::UInt32));
         auto mbarrier_inval =
