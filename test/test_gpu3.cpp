@@ -8733,6 +8733,17 @@ TEST_F(NVFuserTest, PersistentBufferResolutionPoints) {
   auto tv5 = mul(tv1, tv4);
   fusion->addOutput(tv5);
 
+  // The persistent buffer in this fusion is tv1.
+  // The reduction patch is 2 -> 3 -> 4 -> 5.
+  // There are two persistent paths: 1 -> 4 and 1 -> 5.
+  // There are two resolution points: 4 and 5.
+  // Check: 1 buffer with 2 resolution points.
+  auto persistent_buffer_info = scheduler_utils::persistentBuffers(fusion);
+  auto& buffers = persistent_buffer_info.persistent_buffers;
+  auto& resolution = persistent_buffer_info.persistent_buffer_resolution_points;
+  NVF_ERROR(buffers.size() == 1);
+  NVF_ERROR(resolution.size() == 1 && resolution.at(0).size() == 2);
+
   auto options = at::TensorOptions()
                      .dtype(data_type_to_aten(input_dtype))
                      .device(at::kCUDA, 0);
@@ -8746,10 +8757,6 @@ TEST_F(NVFuserTest, PersistentBufferResolutionPoints) {
       "Should project persistent buffers to inputs!");
   scheduleInnerPersistentKernel(fusion, *persistent_params);
 
-  // The persistent buffer in this fusion is tv1.
-  // The reduction patch is 2 -> 3 -> 4 -> 5.
-  // There are two persistent paths: 1 -> 4 and 1 -> 5.
-  // There are two resolution points: 4 and 5.
   // Following the projection onto inputs, tv0 becomes the updated persistent
   // buffer. tv1, utilized by both tv4 and tv5, requires recomputation. If not
   // recomputed, tv1 remains a persistent buffer as it cannot be inlined with
@@ -8761,6 +8768,63 @@ TEST_F(NVFuserTest, PersistentBufferResolutionPoints) {
   auto all_consumer_tvs = ir_utils::consumerValsOf(tv1);
   NVF_CHECK(
       all_consumer_tvs.size() == 1,
+      "Expect 1 consumer, Got: ",
+      all_consumer_tvs.size());
+  FusionExecutor fe;
+  fe.compileFusion(fusion, inputs, persistent_params->lparams);
+  auto cg_outputs = fe.runFusion(inputs, persistent_params->lparams);
+}
+
+TEST_F(NVFuserTest, PersistentBufferResolutionPointsTwoReductions) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  const int batch_size = 128;
+  const int hidden_size = 10240;
+  DataType input_dtype = DataType::Half;
+  auto tv0 = makeContigTensor(2, input_dtype);
+  fusion->addInput(tv0);
+  auto tv1 = castOp(DataType::Float, tv0);
+  auto tv2 = sum(tv1, {1});
+  auto tv3 = broadcast(tv2, {false, true});
+  auto tv4 = div(tv1, tv3);
+  auto tv5 = mul(broadcast(sum(tv1, {1}), {false, true}), tv4);
+  fusion->addOutput(tv5);
+
+  // In test PersistentBufferResolutionPoints
+  // There are two persistent paths: 1 -> 4 and 1 -> 5.
+  // If path 1 -> 5 is changed to 1 -> r6 -> b7 -> 5,
+  // this path becomes a reduction path, tv5 is no longer a resolution point.
+  // For any tensor on the reduction path but not on the persistent path, its
+  // computation doesn't need the persistent buffer (except for the reduction
+  // tvitself).
+  // Check: 1 buffer with 1 resolution points.
+  auto persistent_buffer_info = scheduler_utils::persistentBuffers(fusion);
+  auto& buffers = persistent_buffer_info.persistent_buffers;
+  auto& resolution = persistent_buffer_info.persistent_buffer_resolution_points;
+  NVF_ERROR(buffers.size() == 1);
+  NVF_ERROR(resolution.size() == 1 && resolution.at(0).size() == 1);
+
+  auto options = at::TensorOptions()
+                     .dtype(data_type_to_aten(input_dtype))
+                     .device(at::kCUDA, 0);
+  auto t0 = at::randn({batch_size, hidden_size}, options);
+  std::vector<c10::IValue> inputs{t0};
+
+  auto persistent_params = getInnerPersistentHeuristics(fusion, inputs);
+  NVF_CHECK(persistent_params, "Reduction schedule was not generated!");
+  NVF_CHECK(
+      persistent_params->project_persistent_buffers,
+      "Should project persistent buffers to inputs!");
+  scheduleInnerPersistentKernel(fusion, *persistent_params);
+
+  // Following the projection onto inputs, tv0 becomes the updated persistent
+  // buffer. tv1, utilized by tv4 is recomputed.
+  // There should be 2 consumers of tv1 (2 reductions).
+  auto all_consumer_tvs = ir_utils::consumerValsOf(tv1);
+  NVF_CHECK(
+      all_consumer_tvs.size() == 2,
       "Expect 1 consumer, Got: ",
       all_consumer_tvs.size());
   FusionExecutor fe;
