@@ -188,7 +188,7 @@ int64_t estimateRegPerThread(
     const int64_t persistent_buffer_size,
     const int64_t threads_per_block,
     const int64_t register_overhead,
-    const double max_adjust_fraction,
+    const int64_t max_reg_adjust_count,
     const double target_occupancy) {
   // 1. Estimate count from buffer size and overhead.
   int64_t estimated_register_count =
@@ -207,9 +207,8 @@ int64_t estimateRegPerThread(
           dev_prop->maxThreadsPerMultiProcessor * target_occupancy),
       threads_per_block);
   if (blocks_per_sm < blocks_per_sm_tergeted) {
-    int64_t register_count_minimum = static_cast<int64_t>(
-        max_adjust_fraction * static_cast<double>(estimated_register_count));
-    blocks_per_sm = getThreadsPerSMGivenRegPerThread(register_count_minimum) /
+    blocks_per_sm = getThreadsPerSMGivenRegPerThread(
+                        estimated_register_count - max_reg_adjust_count) /
         threads_per_block;
   }
 
@@ -708,19 +707,10 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
     //       if not fused with dropout.
     const int64_t register_overhead = is_has_rng_no_exp ? 24l : 40l;
 
-    // TODO: revise max_adjust_fraction & target_occupancy
     // (2) adjust register usage if occupancy ratio is lower than target
-    // only allow adjust to 90% of estimated_register_count to avoid too much
-    // spills. initially we used 80%, however, the drop from 160 to 128 leads to
-    // too much spills in Layer Norm with fused ops, see
-    // https://github.com/NVIDIA/Fuser/issues/335
-    // 90% allows edge cases, e.g. 72 to 64 which is important for 32K fp16
-    // where batch = 8. With this change, however, we lost 10 % performance on
-    // Softmax_Inner_fp16/16384/4096, where the perf is best when using 64
-    // registers with 232 bytes spill stores and 276 bytes spill loads. The
-    // estimated register for this case is 104 adjusting it to 64 is too
-    // aggressive.
-    const double max_adjust_fraction = 0.9;
+    // 8 allows important changes e.g. 80 -> 72 -> 64 -> 48 -> 40 -> 32
+    // when threads per block <= 128, these adjust leads to occupancy increase.
+    const int64_t max_reg_adjust_count = 8l;
 
     // (3) target occupancy
     const double target_occupancy = 0.4;
@@ -729,7 +719,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
         persistent_buffer_size,
         threads_per_block,
         register_overhead,
-        max_adjust_fraction,
+        max_reg_adjust_count,
         target_occupancy);
   }
 
