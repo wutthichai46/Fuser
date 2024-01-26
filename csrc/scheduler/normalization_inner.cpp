@@ -176,55 +176,45 @@ void InnerPersistentKernelScheduler::computeHeuristics(
 }
 
 namespace {
-
+/**
+ * Estimates optimal registers per thread to achieve occupancy target.
+ * Steps:
+ * 1. Estimate register count from buffer size and overhead.
+ * 2. Estimate blocks per SM using initial register count.
+ * 3. Adjust register count to achieve target occupancy.
+ * 4. Return registers per thread.
+ */
 int64_t estimateRegPerThread(
     const int64_t persistent_buffer_size,
     const int64_t threads_per_block,
     const int64_t register_overhead,
     const double max_adjust_fraction,
     const double target_occupancy) {
+  // 1. Estimate count from buffer size and overhead.
   int64_t estimated_register_count =
       persistent_buffer_size / scheduler_utils::bytes_per_register +
       register_overhead;
 
-  const int64_t blocks_per_sm_estimated =
+  // 2. Estimate blocks per SM using estimated register count.
+  int64_t blocks_per_sm =
       getThreadsPerSMGivenRegPerThread(estimated_register_count) /
       threads_per_block;
 
-  int64_t register_count_minimum = static_cast<int64_t>(
-      max_adjust_fraction * static_cast<double>(estimated_register_count));
-  const int64_t blocks_per_sm_maximum =
-      getThreadsPerSMGivenRegPerThread(register_count_minimum) /
-      threads_per_block;
-  register_count_minimum = getRegPerThreadGivenThreadsPerSM(
-      blocks_per_sm_maximum * threads_per_block);
-
-  // minimum occupancy we want to achieve
+  // 3. Adjust register count to achieve target occupancy.
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
-  const int64_t blocks_per_sm_wanted = ceilDiv(
+  const int64_t blocks_per_sm_tergeted = ceilDiv(
       static_cast<int64_t>(
           dev_prop->maxThreadsPerMultiProcessor * target_occupancy),
       threads_per_block);
-
-  // if estimated blocks is smaller than wanted and decrease register usage
-  // can increase blocks per sm, try to decrease register usage to increase
-  // occupancy but don't go below register_count_minimum
-  int64_t nvrtc_register_per_thread = scheduler_utils::max_registers_per_thread;
-  if (blocks_per_sm_estimated < blocks_per_sm_wanted &&
-      blocks_per_sm_maximum > blocks_per_sm_estimated) {
-    const int64_t register_count_occupancy = getRegPerThreadGivenThreadsPerSM(
-        blocks_per_sm_wanted * threads_per_block);
-
-    nvrtc_register_per_thread =
-        std::max(register_count_minimum, register_count_occupancy);
-  } else {
-    // recalculate estimated_register_count using blocks_per_sm_estimated
-    // this may increase estimated_register_count due to allocation
-    // granularity e.g. 104 -> 128
-    nvrtc_register_per_thread = getRegPerThreadGivenThreadsPerSM(
-        blocks_per_sm_estimated * threads_per_block);
+  if (blocks_per_sm < blocks_per_sm_tergeted) {
+    int64_t register_count_minimum = static_cast<int64_t>(
+        max_adjust_fraction * static_cast<double>(estimated_register_count));
+    blocks_per_sm = getThreadsPerSMGivenRegPerThread(register_count_minimum) /
+        threads_per_block;
   }
-  return nvrtc_register_per_thread;
+
+  // 4. Return registers per thread.
+  return getRegPerThreadGivenThreadsPerSM(blocks_per_sm * threads_per_block);
 }
 
 std::shared_ptr<ReductionParams> innerPersistentHeuristicSharedMemory(
