@@ -5,9 +5,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <csrc/exceptions.h>
+#include <gmock/gmock-matchers.h>
+#include <gmock/gmock-more-matchers.h>
 #include <gtest/gtest.h>
 
+#include <csrc/exceptions.h>
 #include <fusion.h>
 #include <mma_type.h>
 #include <ops/all_ops.h>
@@ -29,6 +31,7 @@ using ErrorThresholds = std::pair<AbsoluteError, RelariveError>;
 using TestCaseErrorThresholds = std::map<PrecisionsDesc, ErrorThresholds>;
 class PrecisionParametrizedTest
     : public NVFuserFixtureParamTest<PrecisionsDesc> {};
+using testing::UnorderedElementsAre;
 
 [[nodiscard]] auto get_type_letter(const PrimDataType& type) {
   switch (type) {
@@ -2145,6 +2148,51 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueSingleBias) {
     //  verification caused by different way of calculating reference
     NVF_CHECK(outputs[0].allclose(t4, 0.0001, 0.0001));
   }
+}
+
+MATCHER_P(HeuristicIs, heuristic, "") {
+  return arg->heuristic() == heuristic;
+}
+
+TEST_F(MatmulSchedulerTest, MatmulAsMulSum) {
+  const int m = 504, n = 136, k = 248;
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* a = makeContigTensor(2, DataType::Half);
+  fusion->addInput(a);
+  a = add(a, a);
+
+  TensorView* b = makeContigTensor(2, DataType::Half);
+  fusion->addInput(b);
+  b = mul(b, b);
+
+  TensorView* c = matmul(
+      a, b, MmaLayout::TT, /*turing_or_later=*/true, /*as_mul_sum=*/true);
+  c = castOp(DataType::Half, c);
+  fusion->addOutput(c);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  at::Tensor a_tensor = at::randn({m, n}, options);
+  at::Tensor b_tensor = at::randn({n, k}, options);
+  std::vector<at::Tensor> out_tensors =
+      executor_cache.runFusionWithInputs({a_tensor, b_tensor});
+
+  testValidate(
+      executor_cache.fusion(),
+      out_tensors,
+      {a_tensor, b_tensor},
+      __LINE__,
+      __FILE__);
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_FALSE(runtime->isSegmented()) << "Segmentation shouldn't happen.";
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      UnorderedElementsAre(HeuristicIs(ScheduleHeuristic::Reduction)));
 }
 
 #undef NVFUSER_TEST_CUDA_ARCH_GUARD
