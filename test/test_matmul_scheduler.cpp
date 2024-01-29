@@ -2162,11 +2162,11 @@ TEST_F(MatmulSchedulerTest, MatmulAsMulSum) {
 
   TensorView* a = makeContigTensor(2, DataType::Half);
   fusion->addInput(a);
-  a = add(a, a);
+  a = castOp(DataType::Half, add(a, a));
 
   TensorView* b = makeContigTensor(2, DataType::Half);
   fusion->addInput(b);
-  b = mul(b, b);
+  b = castOp(DataType::Half, mul(b, b));
 
   TensorView* c = matmul(
       a, b, MmaLayout::TT, /*turing_or_later=*/true, /*as_mul_sum=*/true);
