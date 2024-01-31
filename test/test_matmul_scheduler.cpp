@@ -2160,8 +2160,7 @@ TEST_F(MatmulSchedulerTest, WrongResultOnSmallDimensionSizes) {
   TensorView* b = makeContigTensor(2, DataType::Half);
   fusion->addInput(b);
 
-  TensorView* c = matmul(
-      a, b, MmaLayout::TT, /*turing_or_later=*/true, /*as_mul_sum=*/false);
+  TensorView* c = matmul(a, b, MmaLayout::TT, /*turing_or_later=*/true);
   c = castOp(DataType::Half, c);
   fusion->addOutput(c);
 
