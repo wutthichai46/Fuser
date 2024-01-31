@@ -177,29 +177,10 @@ void InnerPersistentKernelScheduler::computeHeuristics(
 
 namespace {
 
-// Set register per thread to achieve the occupancy target under the
-// constraint of the minimum register each thread should use.
-// Para [target_blocks_per_sm_max]: no benifit to further increase occupancy.
-// Para [target_blocks_per_sm_min]: minimum occupancy to achieve.
-// Para [register_overhead] and [max_register_adjust_count]: used to estimate
-//      the minimum register each thread should use to avoid spills.
-
-// Scenarios from (1) to (3):
-// achieved occupancy is decreasing, register pressure is increasing.
-// (1) occupancy = [target_blocks_per_sm_max]
-//     achieved, if register per thread for this occupancy is smaller than
-//     estimated.
-
-// (2) [target_blocks_per_sm_min] <= occupancy < [target_blocks_per_sm_max]
-//     achieved, if using estimated register per thread can achieve this
-//     occupancy.
-
-// (3) occupancy <= target_blocks_per_sm_min
-//     set register per thread to [estimated - adjusted], usually have spills.
-
-// For (2) and (3), needs to re-calculate register per thread based on occupancy
-// due to register allocation granularity.
-
+// Calculate register usage based on target occupancy
+// Para [target_warps_per_sm]: target occupancy.
+// Para [register_overhead]: used to estimate the minimum register each thread
+// should use.
 int64_t estimateRegPerThread(
     const int64_t buffer_size_per_thread,
     const int64_t threads_per_block,
@@ -210,23 +191,21 @@ int64_t estimateRegPerThread(
       at::cuda::getCurrentDeviceProperties()->warpSize;
   int64_t target_blocks_per_sm =
       ceilDiv(target_warps_per_sm * threads_per_warp, threads_per_block);
-  
+
   // minimum register each thread should use to avoid spills
   const int64_t register_per_thread_min =
       buffer_size_per_thread / scheduler_utils::bytes_per_register +
       register_overhead;
 
-  // (1) calc [register_per_thread] from [target_blocks_per_sm]
-  //     use it if it exceeds minimum register per thread.
-  int64_t register_per_thread_target =
-      getRegPerThreadGivenThreadsPerSM(target_blocks_per_sm * threads_per_block);
+  // (1) use register calculated from target occupancy
+  int64_t register_per_thread_target = getRegPerThreadGivenThreadsPerSM(
+      target_blocks_per_sm * threads_per_block);
   if (register_per_thread_target >= register_per_thread_min) {
     return register_per_thread_target;
   }
 
-  //(2) can't achieve [target_blocks_per_sm]
-  //    calc [blocks_per_sm_max] from [register_per_thread_min]
-  //    calc [register_per_thread] from [blocks_per_sm_max]
+  //(2) can't achieve target occupancy. Estimate occupancy from minimum register
+  // each thread should use, then derive register per thread from occupancy.
   int64_t blocks_per_sm_max =
       getThreadsPerSMGivenRegPerThread(register_per_thread_min) /
       threads_per_block;
@@ -708,7 +687,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
         pad_bdimx ? padded_bdimx * bdimy * bdimz : bdimx * bdimy * bdimz;
     // call with free parameters
     const int64_t register_overhead = 16;
-    const int64_t target_warps_per_sm = 36;
+    const int64_t target_warps_per_sm = 28;
     nvrtc_register_per_thread = estimateRegPerThread(
         persistent_buffer_size,
         threads_per_block,
