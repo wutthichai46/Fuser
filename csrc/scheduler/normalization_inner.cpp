@@ -203,46 +203,35 @@ namespace {
 int64_t estimateRegPerThread(
     const int64_t buffer_size_per_thread,
     const int64_t threads_per_block,
-    const int64_t target_warps_per_sm_max,
-    const int64_t target_warps_per_sm_min,
-    const int64_t register_overhead,
-    const int64_t max_register_adjust_count) {
+    const int64_t target_warps_per_sm,
+    const int64_t register_overhead) {
   // convert [target_warps_per_sm] to [target_blocks_per_sm]
   const int64_t threads_per_warp =
       at::cuda::getCurrentDeviceProperties()->warpSize;
-  int64_t target_blocks_per_sm_min =
-      ceilDiv(target_warps_per_sm_min * threads_per_warp, threads_per_block);
-  int64_t target_blocks_per_sm_max = std::max(
-      target_warps_per_sm_max * threads_per_warp / threads_per_block,
-      target_blocks_per_sm_min);
-
-  // (1) occupancy = [target_blocks_per_sm_max]
-  int64_t register_per_thread_occ_max = getRegPerThreadGivenThreadsPerSM(
-      target_blocks_per_sm_max * threads_per_block);
-  int64_t register_per_thread_estimated =
+  int64_t target_blocks_per_sm =
+      ceilDiv(target_warps_per_sm * threads_per_warp, threads_per_block);
+  
+  // minimum register each thread should use to avoid spills
+  const int64_t register_per_thread_min =
       buffer_size_per_thread / scheduler_utils::bytes_per_register +
       register_overhead;
-  if (register_per_thread_occ_max >= register_per_thread_estimated) {
-    return register_per_thread_occ_max;
+
+  // (1) calc [register_per_thread] from [target_blocks_per_sm]
+  //     use it if it exceeds minimum register per thread.
+  int64_t register_per_thread_target =
+      getRegPerThreadGivenThreadsPerSM(target_blocks_per_sm * threads_per_block);
+  if (register_per_thread_target >= register_per_thread_min) {
+    return register_per_thread_target;
   }
 
-  //(2) [target_blocks_per_sm_min] <= occupancy < [target_blocks_per_sm_max]
-  int64_t blocks_per_sm_estimated =
-      getThreadsPerSMGivenRegPerThread(register_per_thread_estimated) /
-      threads_per_block;
-  if (blocks_per_sm_estimated >= target_blocks_per_sm_min) {
-    return getRegPerThreadGivenThreadsPerSM(
-        blocks_per_sm_estimated * threads_per_block);
-  }
-
-  // (3) occupancy <= target_blocks_per_sm_min
-  int64_t blocks_per_sm_adjusted =
-      getThreadsPerSMGivenRegPerThread(
-          register_per_thread_estimated - max_register_adjust_count) /
+  //(2) can't achieve [target_blocks_per_sm]
+  //    calc [blocks_per_sm_max] from [register_per_thread_min]
+  //    calc [register_per_thread] from [blocks_per_sm_max]
+  int64_t blocks_per_sm_max =
+      getThreadsPerSMGivenRegPerThread(register_per_thread_min) /
       threads_per_block;
   return getRegPerThreadGivenThreadsPerSM(
-      std::min(blocks_per_sm_adjusted, target_blocks_per_sm_min) *
-      threads_per_block);
+      blocks_per_sm_max * threads_per_block);
 }
 
 std::shared_ptr<ReductionParams> innerPersistentHeuristicSharedMemory(
@@ -718,17 +707,13 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
     const int64_t threads_per_block =
         pad_bdimx ? padded_bdimx * bdimy * bdimz : bdimx * bdimy * bdimz;
     // call with free parameters
-    const int64_t register_overhead = 24;
-    const int64_t max_register_adjust_count = 8;
-    const int64_t target_warps_per_sm_min = 24;
-    const int64_t target_warps_per_sm_max = 36;
+    const int64_t register_overhead = 16;
+    const int64_t target_warps_per_sm = 36;
     nvrtc_register_per_thread = estimateRegPerThread(
         persistent_buffer_size,
         threads_per_block,
-        target_warps_per_sm_max,
-        target_warps_per_sm_min,
-        register_overhead,
-        max_register_adjust_count);
+        target_warps_per_sm,
+        register_overhead);
   }
 
   // Will be used once supporting inter-block persistence
