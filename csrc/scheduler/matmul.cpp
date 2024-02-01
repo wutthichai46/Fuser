@@ -696,6 +696,12 @@ void scheduleFusionInputsForEpilogue(
 } // namespace
 
 void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
+  if (fusion->isMmaExprEval()){
+    // MmaOp will be expression evaluated using aten::matmul.
+    // Skip matmul scheduling.
+    return;
+  }
+
   static const bool should_unroll = true;
   auto cached_and_forked_outputs =
       scheduler_utils::cacheAndForkOutputs(fusion, should_unroll);

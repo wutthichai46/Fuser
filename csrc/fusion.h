@@ -432,6 +432,18 @@ class Fusion : public IrContainer {
 
   static IrCloner copy(const Fusion* from, Fusion* to);
 
+  // TODO: In the longer run, we will use heuristics to decide
+  //      if MmaOp is executed via EE or nvFuser.
+  // Utility function to check if MmaOp is expression evaluated.
+  inline bool isMmaExprEval() const {
+    return is_mma_expr_eval_;
+  }
+  // Utility function to mark MmaOp to be expression evaluated.
+  inline void markMmaForExprEval() {
+    is_mma_expr_eval_ = true;
+    return;
+  }
+
  protected:
   friend SegmentCandidateFinder;
   friend SegmentedFusion;
@@ -490,6 +502,9 @@ class Fusion : public IrContainer {
   std::vector<std::pair<std::any, CloneFn>> managed_data_;
   std::unordered_map<std::string, std::pair<std::any, CloneFn>>
       managed_named_data_;
+
+  // Records if MmaOp is expression evaluated.
+  bool is_mma_expr_eval_ = false;
 };
 
 } // namespace nvfuser
